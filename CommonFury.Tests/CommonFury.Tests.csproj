@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.aot" Version="4.0.0" />
+    <ProjectReference Include="../CommonFury/CommonFury.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="ReferenceData/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

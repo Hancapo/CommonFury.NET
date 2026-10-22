@@ -1,0 +1,33 @@
+using CommonFury.Binary;
+
+namespace CommonFury.Pso;
+
+internal static class PsoMapLayout
+{
+    internal static (PsoEntry Key, PsoEntry Item) Descriptors(PsoStruct owner, PsoEntry entry)
+    {
+        int key = (int)(entry.ReferenceKey >> 16), item = (int)(entry.ReferenceKey & 0xFFFF);
+        BinaryLayout.Require(entry.Subtype == 1 && key < owner.Entries.Count && item < owner.Entries.Count && key != item,
+            "Binary map has invalid key/item descriptor indexes.");
+        var k = owner.Entries[key];
+        var v = owner.Entries[item];
+        BinaryLayout.Require(k.IsAnonymous && v.IsAnonymous, "Binary map key/item descriptors must be anonymous.");
+        return (k, v);
+    }
+
+    internal static PsoStruct Pair(PsoSchema schema, PsoStruct owner, PsoEntry entry, uint hash)
+    {
+        var (key, item) = Descriptors(owner, entry);
+        BinaryLayout.Require(schema.ByHash.GetValueOrDefault(hash) is PsoStruct, "Binary map pair schema is missing.");
+        var pair = (PsoStruct)schema.ByHash[hash];
+        var fields = pair.Entries.Where(value => !value.IsAnonymous).ToArray();
+        BinaryLayout.Require(pair.Length > 0 && fields.Length == 2 && Equivalent(fields[0], key) && Equivalent(fields[1], item),
+            "Binary map pair schema disagrees with its key/item descriptors.");
+        return pair;
+    }
+
+    private static bool Equivalent(PsoEntry first, PsoEntry second) => first.DataType == second.DataType && first.Subtype == second.Subtype && first.ReferenceKey == second.ReferenceKey;
+    internal static PsoEntry Array(PsoEntry entry) => new(entry.NameHash, PsoDataType.Array, 0, checked((ushort)(entry.DataOffset + 8)), 0);
+    internal static PsoEntry Element(uint hash) => new(PsoEntry.ArrayInfoHash, PsoDataType.Structure, 0, 0, hash);
+    internal static PsoArray Values(PsoMap map) => new(map.Entries.Select(node => (PsoValue)new PsoNodeValue(node)).ToArray());
+}

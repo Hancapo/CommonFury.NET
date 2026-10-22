@@ -1,0 +1,420 @@
+{
+ "pso": {
+  "type": 287454020,
+  "fields": {
+   "hash_00000001": true,
+   "hash_00000002": -123,
+   "hash_00000003": 254,
+   "hash_00000004": -32000,
+   "hash_00000005": 65000,
+   "hash_00000006": -123456,
+   "hash_00000007": 4275878552,
+   "hash_00000008": -12.25,
+   "hash_00000009": {
+    "vector": [
+     1.25,
+     2.5
+    ]
+   },
+   "hash_0000000A": {
+    "vector": [
+     1.0,
+     2.0,
+     3.0
+    ]
+   },
+   "hash_0000000B": {
+    "vector": [
+     -1.0,
+     2.0,
+     -3.0,
+     4.0
+    ]
+   },
+   "hash_0000000C": 15872,
+   "hash_0000000D": -1125899906842624,
+   "hash_0000000E": -1,
+   "hash_0000000F": -2147483647,
+   "hash_00000010": {
+    "hash": 3735928559
+   },
+   "hash_00000011": "hello",
+   "hash_00000012": "hello",
+   "hash_00000013": "hello",
+   "hash_00000014": {
+    "type": 573785173,
+    "fields": {
+     "hash_0000001F": 17,
+     "hash_00000020": 19
+    }
+   },
+   "hash_00000015": {
+    "type": 573785173,
+    "fields": {
+     "hash_0000001F": 23,
+     "hash_00000020": 29
+    }
+   },
+   "hash_00000016": [
+    -1,
+    0,
+    77
+   ],
+   "hash_00000017": [
+    {
+     "type": 573785173,
+     "fields": {
+      "hash_0000001F": 9,
+      "hash_00000020": 10
+     }
+    },
+    {
+     "type": 573785173,
+     "fields": {
+      "hash_0000001F": 0,
+      "hash_00000020": 0
+     }
+    }
+   ],
+   "hash_00000018": [
+    8,
+    9,
+    0
+   ],
+   "hash_00000019": [
+    {
+     "type": 573785173,
+     "fields": {
+      "hash_0000001F": 23,
+      "hash_00000020": 29
+     }
+    },
+    null
+   ],
+   "hash_0000001A": [
+    {
+     "vector": [
+      1.0,
+      2.0,
+      3.0
+     ]
+    },
+    {
+     "vector": [
+      4.0,
+      5.0,
+      6.0
+     ]
+    }
+   ],
+   "hash_0000001B": [
+    {
+     "hash": 3405691582
+    },
+    {
+     "hash": 0
+    }
+   ],
+   "hash_0000001C": null
+  }
+ },
+ "builder": {
+  "root_hash": 287454020,
+  "blocks": [
+   {
+    "hash": 287454020,
+    "data": "AYX+AIMA/ej//h3A/ty6mMFEAAA/oAAAQCAAAAAAAAA/gAAAQAAAAEBAAAAAAAAAv4AAAEAAAADAQAAAQIAAAD4AAAAAAAAA//wAAAAAAAD/////gAAAAd6tvu9oZWxsbwB6egAAAAAAAAACAAAAAAAAAAIAAAAAAAYABgAAAAAAAAARAAAAEwAAAAMAAAAAAAAABAAAAAAAAwADAAAAAAAAAAkAAAAKAAAAAAAAAAAAAAAIAAAACQAAAAAAAAAAAAAABQAAAAAAAgACAAAAAAAAAAYAAAAAAAIAAgAAAAAAAAAHAAAAAAACAAIAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+   },
+   {
+    "hash": 1,
+    "data": "aGVsbG8A"
+   },
+   {
+    "hash": 573785173,
+    "data": "AAAAFwAAAB0="
+   },
+   {
+    "hash": 170,
+    "data": "/////wAAAAAAAABN"
+   },
+   {
+    "hash": 187,
+    "data": "AAAAAwAAAAAAAAAAAAAAAA=="
+   },
+   {
+    "hash": 204,
+    "data": "P4AAAEAAAABAQAAAQsYAAECAAABAoAAAQMAAAELGAAA="
+   },
+   {
+    "hash": 221,
+    "data": "yv66vgAAAAA="
+   }
+  ],
+  "structures": [
+   {
+    "hash": 287454020,
+    "length": 256,
+    "entries": [
+     {
+      "hash": 1,
+      "type": 0,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 2,
+      "type": 1,
+      "subtype": 0,
+      "offset": 1,
+      "reference": 0
+     },
+     {
+      "hash": 3,
+      "type": 2,
+      "subtype": 0,
+      "offset": 2,
+      "reference": 0
+     },
+     {
+      "hash": 4,
+      "type": 3,
+      "subtype": 0,
+      "offset": 4,
+      "reference": 0
+     },
+     {
+      "hash": 5,
+      "type": 4,
+      "subtype": 0,
+      "offset": 6,
+      "reference": 0
+     },
+     {
+      "hash": 6,
+      "type": 5,
+      "subtype": 0,
+      "offset": 8,
+      "reference": 0
+     },
+     {
+      "hash": 7,
+      "type": 6,
+      "subtype": 0,
+      "offset": 12,
+      "reference": 0
+     },
+     {
+      "hash": 8,
+      "type": 7,
+      "subtype": 0,
+      "offset": 16,
+      "reference": 0
+     },
+     {
+      "hash": 9,
+      "type": 8,
+      "subtype": 0,
+      "offset": 20,
+      "reference": 0
+     },
+     {
+      "hash": 10,
+      "type": 9,
+      "subtype": 0,
+      "offset": 32,
+      "reference": 0
+     },
+     {
+      "hash": 11,
+      "type": 10,
+      "subtype": 0,
+      "offset": 48,
+      "reference": 0
+     },
+     {
+      "hash": 12,
+      "type": 30,
+      "subtype": 0,
+      "offset": 64,
+      "reference": 0
+     },
+     {
+      "hash": 13,
+      "type": 32,
+      "subtype": 0,
+      "offset": 72,
+      "reference": 0
+     },
+     {
+      "hash": 14,
+      "type": 14,
+      "subtype": 0,
+      "offset": 80,
+      "reference": 1432778632
+     },
+     {
+      "hash": 15,
+      "type": 15,
+      "subtype": 0,
+      "offset": 84,
+      "reference": 0
+     },
+     {
+      "hash": 16,
+      "type": 11,
+      "subtype": 7,
+      "offset": 88,
+      "reference": 0
+     },
+     {
+      "hash": 17,
+      "type": 11,
+      "subtype": 0,
+      "offset": 92,
+      "reference": 524288
+     },
+     {
+      "hash": 18,
+      "type": 11,
+      "subtype": 2,
+      "offset": 104,
+      "reference": 0
+     },
+     {
+      "hash": 19,
+      "type": 11,
+      "subtype": 3,
+      "offset": 112,
+      "reference": 0
+     },
+     {
+      "hash": 20,
+      "type": 12,
+      "subtype": 0,
+      "offset": 128,
+      "reference": 573785173
+     },
+     {
+      "hash": 21,
+      "type": 12,
+      "subtype": 3,
+      "offset": 136,
+      "reference": 0
+     },
+     {
+      "hash": 256,
+      "type": 5,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 22,
+      "type": 13,
+      "subtype": 0,
+      "offset": 144,
+      "reference": 0
+     },
+     {
+      "hash": 256,
+      "type": 12,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 573785173
+     },
+     {
+      "hash": 23,
+      "type": 13,
+      "subtype": 4,
+      "offset": 160,
+      "reference": 131072
+     },
+     {
+      "hash": 256,
+      "type": 6,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 24,
+      "type": 13,
+      "subtype": 4,
+      "offset": 176,
+      "reference": 196608
+     },
+     {
+      "hash": 256,
+      "type": 12,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 25,
+      "type": 13,
+      "subtype": 0,
+      "offset": 192,
+      "reference": 0
+     },
+     {
+      "hash": 256,
+      "type": 9,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 26,
+      "type": 13,
+      "subtype": 0,
+      "offset": 208,
+      "reference": 0
+     },
+     {
+      "hash": 256,
+      "type": 11,
+      "subtype": 7,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 27,
+      "type": 13,
+      "subtype": 0,
+      "offset": 224,
+      "reference": 0
+     },
+     {
+      "hash": 28,
+      "type": 16,
+      "subtype": 0,
+      "offset": 240,
+      "reference": 0
+     }
+    ]
+   },
+   {
+    "hash": 573785173,
+    "length": 8,
+    "entries": [
+     {
+      "hash": 31,
+      "type": 5,
+      "subtype": 0,
+      "offset": 0,
+      "reference": 0
+     },
+     {
+      "hash": 32,
+      "type": 5,
+      "subtype": 0,
+      "offset": 4,
+      "reference": 0
+     }
+    ]
+   }
+  ]
+ }
+}

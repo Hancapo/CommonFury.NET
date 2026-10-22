@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CommonFury/CommonFury.csproj" />
+  <Project Path="CommonFury.Tests/CommonFury.Tests.csproj" />
+  <Project Path="CommonFury.Native/CommonFury.Native.csproj" />
+</Solution>

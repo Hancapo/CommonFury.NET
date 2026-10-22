@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.dds binary
+*.hmap binary
+*.pso binary
+*.psch binary
+*.seq binary
+*.ymf binary
+*.ymt binary
+*.canonical binary
+*.dense binary
+*.png binary

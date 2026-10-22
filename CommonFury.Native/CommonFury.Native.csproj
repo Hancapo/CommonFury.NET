@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>commonfury_native</AssemblyName>
+    <RootNamespace>CommonFury.Native</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <!-- Size settings that keep every exported behavior, verified with tests/test_native.py (2.22 MB → 1.72 MB on win-x64).
+       Deliberately not set: UseSystemResourceKeys (replaces framework error text returned by cf_error_copy with resource keys)
+       and IlcDisableReflection (unsupported, and no smaller here). -->
+  <PropertyGroup>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <!-- CommonFury only uses ordinal and invariant-culture text operations. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Exception messages still reach cf_error_copy; only managed stack-trace text is dropped. -->
+    <StackTraceSupport>false</StackTraceSupport>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <UseNativeHttpHandler>false</UseNativeHttpHandler>
+    <EnableUnsafeBinaryFormatterSerialization>false</EnableUnsafeBinaryFormatterSerialization>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CommonFury/CommonFury.csproj" />
+    <None Include="include/commonfury.h" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
