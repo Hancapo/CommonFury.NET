@@ -41,14 +41,14 @@ public readonly record struct QuantizedBvhNode(Short3 Minimum, Short3 Maximum, u
     }
 }
 
-/// <summary>Selects how box limits are converted to quantized coordinates. The games differ, so there is no default.</summary>
+/// <summary>Selects how box limits are converted to quantized coordinates. Formats differ, so there is no default.</summary>
 public enum BvhQuantizationRounding
 {
     /// <summary>Multiply the offset from the center by <see cref="BvhQuantization.QuantumInverse"/>, clamp to the Int16 range,
-    /// then floor minima and ceil maxima (GTA V).</summary>
+    /// then floor minima and ceil maxima.</summary>
     InverseClamped,
     /// <summary>Divide the offset from the center by <see cref="BvhQuantization.Quantum"/>, floor minima and ceil maxima,
-    /// and reject coordinates outside the Int16 range (RDR2).</summary>
+    /// and reject coordinates outside the Int16 range.</summary>
     DivideChecked
 }
 
@@ -58,7 +58,7 @@ public enum BvhQuantizationRounding
 /// <param name="QuantumInverse">Stored reciprocal of <paramref name="Quantum"/>.</param>
 public readonly record struct BvhQuantization(Vector3 Center, Vector3 Quantum, Vector3 QuantumInverse)
 {
-    /// <summary>Spreads the box size over 65534 steps per axis, using 1/32767 for flat axes, centered on the box (GTA V).</summary>
+    /// <summary>Spreads the box size over 65534 steps per axis, using 1/32767 for flat axes, centered on the box.</summary>
     public static BvhQuantization FromSize(Aabb3 bounds)
     {
         Vector3 size = bounds.Size;
@@ -66,7 +66,7 @@ public readonly record struct BvhQuantization(Vector3 Center, Vector3 Quantum, V
         return new(bounds.Center, quantum, Vector3.One / quantum);
     }
 
-    /// <summary>Spreads the larger half-extent over 32766 steps per axis, with a 1e-6 minimum step, centered on the box (RDR2).</summary>
+    /// <summary>Spreads the larger half-extent over 32766 steps per axis, with a 1e-6 minimum step, centered on the box.</summary>
     public static BvhQuantization FromExtent(Aabb3 bounds)
     {
         Vector3 center = bounds.Center;

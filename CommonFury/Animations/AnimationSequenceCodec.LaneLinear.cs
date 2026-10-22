@@ -4,7 +4,7 @@ using CommonFury.Binary;
 
 namespace CommonFury.Animations;
 
-// Lane-interleaved linear channels (RDR2): [0] word count, [1] address bits | initial bits << 8 | data rows << 16, [2] quantum,
+// Lane-interleaved linear channels: [0] word count, [1] address bits | initial bits << 8 | data rows << 16, [2] quantum,
 // [3] offset; then a bit stream (from bit 128) of per-segment data-stream addresses, per-segment initial codes and one unary
 // width code per group of four deltas (w zero bits then a one bit; 32 zeros mean width 32). The last 4 × rows words hold four
 // lane streams interleaved by word; each group stores w bits per lane, starting at the segment's address plus earlier widths.

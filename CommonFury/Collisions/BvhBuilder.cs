@@ -6,9 +6,9 @@ namespace CommonFury.Collisions;
 /// <summary>Selects how many items go to the first child when a node is split at the median.</summary>
 public enum BvhSplit
 {
-    /// <summary>The first child receives <c>(n + 1) / 2</c> items (GTA V).</summary>
+    /// <summary>The first child receives <c>(n + 1) / 2</c> items.</summary>
     UpperMedian,
-    /// <summary>The first child receives <c>n / 2</c> items (RDR2).</summary>
+    /// <summary>The first child receives <c>n / 2</c> items.</summary>
     LowerMedian
 }
 
@@ -21,8 +21,8 @@ public enum BvhLeafIds
     FirstItemIndex
 }
 
-/// <summary>Builder settings. Every member is explicit because the games differ.</summary>
-/// <param name="LeafSize">Largest item count of a leaf, 1–255 (4 for geometry, 1 for composites in both games).</param>
+/// <summary>Builder settings. Every member is explicit because formats differ.</summary>
+/// <param name="LeafSize">Largest item count of a leaf, 1–255 (typically 4 for geometry, 1 for composites).</param>
 /// <param name="Split">Which child receives the odd item when splitting.</param>
 /// <param name="LeafIds">What a leaf's item id refers to.</param>
 public readonly record struct BvhBuildOptions(int LeafSize, BvhSplit Split, BvhLeafIds LeafIds);
@@ -58,7 +58,7 @@ public sealed class BvhBuild
     public Aabb3 Bounds { get; }
 
     /// <summary>Partitions the hierarchy into subtrees of at most <paramref name="maximumNodeCount"/> nodes, splitting larger branches
-    /// at their children, in preorder. GTA V stores such a list with 127 as the limit.</summary>
+    /// at their children, in preorder.</summary>
     public IReadOnlyList<BvhSubtree> Subtrees(int maximumNodeCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumNodeCount);

@@ -4,10 +4,10 @@ namespace CommonFury.Animations;
 public enum LinearChannelEncoding
 {
     /// <summary>Segments of the sequence's power-of-two segment size; per-segment address and initial-code tables followed by
-    /// Rice-coded sign-magnitude deltas with a per-channel divisor (GTA V).</summary>
+    /// Rice-coded sign-magnitude deltas with a per-channel divisor.</summary>
     RiceCoded,
     /// <summary>Fixed 64-frame segments; groups of four zigzag deltas share a unary-coded width and are stored in four
-    /// word-interleaved lanes (RDR2).</summary>
+    /// word-interleaved lanes.</summary>
     LaneInterleaved
 }
 
@@ -67,7 +67,7 @@ public sealed class AnimationChannelGroupTable
     public int GroupOf(AnimationChannelType type) => (uint)type < (uint)groups.Length ? groups[(int)type] : -1;
 }
 
-/// <summary>Game-specific encoding choices for an animation sequence block. The block layout (32-byte header, constant
+/// <summary>Format-specific encoding choices for an animation sequence block. The block layout (32-byte header, constant
 /// section, fixed-stride frames, per-group descriptor tables and mover references) is shared; these options are not.</summary>
 public sealed record AnimationSequenceFormat
 {

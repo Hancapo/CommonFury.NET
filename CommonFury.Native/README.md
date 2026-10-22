@@ -22,13 +22,13 @@ so the build can find `vswhere.exe`.
 | DEFLATE | `cf_deflate_compress`, `cf_deflate_decompress`, `cf_deflate_decompress_exact` (strict framing, optional zero window) |
 | Textures | `cf_dds_read`/`write` (2D, cube, volume, arrays), `cf_texture_data_size`, `cf_pixel_decode`/`encode`, `cf_bc1_encode`/`decode` |
 | RBF | `cf_rbf_validate` (JSON diagnostics), `cf_rbf_rewrite` |
-| PSO | `cf_pso_get_info`, `cf_pso_validate`, `cf_pso_rewrite`, for 12-bit (GTA V) and 20-bit (RDR2) pointer layouts |
+| PSO | `cf_pso_get_info`, `cf_pso_validate`, `cf_pso_rewrite`, for 12-bit and 20-bit block-id pointer layouts |
 | Height maps | `cf_heightmap_read`/`write`: all cell types, layouts, byte orders, water masks |
 | Vertices | `cf_vertex_format_size`, `cf_vertex_decode`/`encode` by DXGI format, with an explicit range for DXGI 24 |
-| BVH | `cf_bvh_build` with the split rule and leaf-id meaning of either game |
+| BVH | `cf_bvh_build` with a configurable split rule and leaf-id meaning |
 
-Not exported: APIs that need game-supplied tables or live .NET objects. These are animation sequences (they need a
-game-supplied group table and compact codec), PSO/RBF graph editing, archive caches and byte sources, XML helpers
+Not exported: APIs that need caller-supplied tables or live .NET objects. These are animation sequences (they need a
+caller-supplied group table and compact codec), PSO/RBF graph editing, archive caches and byte sources, XML helpers
 and DLC tokens. Those remain available to .NET callers.
 
 ## Size

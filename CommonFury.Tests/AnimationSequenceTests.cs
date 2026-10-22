@@ -9,9 +9,9 @@ namespace CommonFury.Tests;
 
 public sealed class AnimationSequenceTests
 {
-    // Test stand-ins for the game libraries' formats. The real compact codec is game-specific; raw DEFLATE exercises
+    // Two example formats. Real compact codecs are supplied by callers; raw DEFLATE exercises
     // the injected-codec plumbing.
-    private static readonly AnimationSequenceFormat Gta = new(new([
+    private static readonly AnimationSequenceFormat RiceFormat = new(new([
         AnimationChannelType.StaticQuaternion, AnimationChannelType.StaticVector3, AnimationChannelType.StaticFloat,
         AnimationChannelType.RawFloat, AnimationChannelType.QuantizedFloat, AnimationChannelType.IndirectQuantizedFloat,
         AnimationChannelType.LinearFloat, AnimationChannelType.ReconstructQuaternion, AnimationChannelType.NormalizeQuaternion]))
@@ -21,7 +21,7 @@ public sealed class AnimationSequenceTests
         CompressCompact = data => RawDeflate.Compress(data.Span, CompressionLevel.Optimal),
     };
 
-    private static readonly AnimationSequenceFormat Rdr2 = new(new([
+    private static readonly AnimationSequenceFormat LaneFormat = new(new([
         AnimationChannelType.StaticQuaternion, AnimationChannelType.StaticVector3, AnimationChannelType.StaticFloat,
         AnimationChannelType.RawFloat, AnimationChannelType.QuantizedFloat, AnimationChannelType.IndirectQuantizedFloat,
         null, AnimationChannelType.ReconstructQuaternion, AnimationChannelType.NormalizeQuaternion, AnimationChannelType.LinearFloat]))
@@ -38,9 +38,9 @@ public sealed class AnimationSequenceTests
     public void ReferenceChannelsPreserveEncodingsAndEvaluateFractionalFrames()
     {
         byte[] bytes = File.ReadAllBytes(Fixture);
-        AnimationSequence sequence = AnimationSequence.Read(bytes, 9, Gta);
+        AnimationSequence sequence = AnimationSequence.Read(bytes, 9, RiceFormat);
         Array.Clear(bytes);
-        Assert.True(sequence.Validate(Gta).IsValid, string.Join("; ", sequence.Validate(Gta).Diagnostics));
+        Assert.True(sequence.Validate(RiceFormat).IsValid, string.Join("; ", sequence.Validate(RiceFormat).Diagnostics));
         Assert.Equal(65, sequence.FrameCount);
         NumericAssert.Near(sequence.Sample(3, 0.5f, AnimationTrackFormat.Float).X, 0.5, "raw subframe");
         NumericAssert.Near(sequence.Sample(4, 2.5f, AnimationTrackFormat.Float).X, 2.5, "quantized subframe");
@@ -51,19 +51,19 @@ public sealed class AnimationSequenceTests
         NumericAssert.Near(reconstructed.W, Math.Sqrt(1 - 0.05 * 0.05), "reconstruction after interpolation");
         Vector4 normalized = sequence.Sample(8, 0.5f, AnimationTrackFormat.Quaternion);
         NumericAssert.Near(normalized.Length(), 1, "normalization opcode");
-        byte[] rewritten = sequence.Write(Gta);
-        AnimationSequence reread = AnimationSequence.Read(rewritten, 9, Gta);
+        byte[] rewritten = sequence.Write(RiceFormat);
+        AnimationSequence reread = AnimationSequence.Read(rewritten, 9, RiceFormat);
         Assert.Equal(sequence.Tracks.SelectMany(t => t.Channels).Select(c => c.Type), reread.Tracks.SelectMany(t => t.Channels).Select(c => c.Type));
         Assert.Equal(File.ReadAllBytes(Fixture), rewritten);
     }
 
     [Fact]
-    public void EditedGtaSequenceReencodesEveryChannelKindIdentically()
+    public void EditedRiceSequenceReencodesEveryChannelKindIdentically()
     {
-        AnimationSequence sequence = AnimationSequence.Read(File.ReadAllBytes(Fixture), 9, Gta);
+        AnimationSequence sequence = AnimationSequence.Read(File.ReadAllBytes(Fixture), 9, RiceFormat);
         // Changing the opaque hash forces the canonical encoder instead of the retained source bytes.
         sequence.Hash ^= 1;
-        byte[] rewritten = sequence.Write(Gta);
+        byte[] rewritten = sequence.Write(RiceFormat);
         byte[] expected = File.ReadAllBytes(Fixture);
         BinaryPrimitives.WriteUInt32LittleEndian(expected, sequence.Hash);
         Assert.Equal(expected, rewritten);
@@ -75,24 +75,24 @@ public sealed class AnimationSequenceTests
         byte[] source = File.ReadAllBytes(Fixture);
         byte[] truncatedFrames = source.ToArray();
         BinaryPrimitives.WriteUInt16LittleEndian(truncatedFrames.AsSpan(0x18), 0);
-        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(truncatedFrames, 9, Gta));
-        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(source.AsSpan(0, source.Length - 1), 9, Gta));
+        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(truncatedFrames, 9, RiceFormat));
+        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(source.AsSpan(0, source.Length - 1), 9, RiceFormat));
         byte[] badIndex = source.ToArray();
         int constantBytes = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(0x0C)));
         int frameBytes = BinaryPrimitives.ReadUInt16LittleEndian(source.AsSpan(0x18));
         int counts = 0x20 + constantBytes + frameBytes * 65;
         int firstDescriptor = counts + 18;
         BinaryPrimitives.WriteUInt16LittleEndian(badIndex.AsSpan(firstDescriptor), 9 << 2);
-        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(badIndex, 9, Gta));
+        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(badIndex, 9, RiceFormat));
 
         var linearSequence = new AnimationSequence(2) { SegmentSize = 2 };
         var linearTrack = new SequenceTrack();
         linearTrack.Channels.Add(new LinearFloatChannel([0, 0], 1, segmentSize: 2));
         linearSequence.Tracks.Add(linearTrack);
-        byte[] missingRiceTerminator = linearSequence.Write(Gta);
+        byte[] missingRiceTerminator = linearSequence.Write(RiceFormat);
         // One zero-width initial value and one Rice zero delta: clearing its terminal bit leaves no bounded unary terminator.
         missingRiceTerminator.AsSpan(0x20 + 16, 4).Clear();
-        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(missingRiceTerminator, 1, Gta));
+        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(missingRiceTerminator, 1, RiceFormat));
     }
 
     [Fact]
@@ -107,24 +107,24 @@ public sealed class AnimationSequenceTests
         sequence.Tracks.Add(track);
         NumericAssert.Near(sequence.Sample(0, 0.5f, AnimationTrackFormat.Float).X, 2, "owned channel input");
         Assert.Throws<InvalidOperationException>(() => sequence.Sample(0, 0.5f, AnimationTrackFormat.Vector3));
-        AnimationSequence decoded = AnimationSequence.Read(sequence.Write(Gta), 1, Gta);
+        AnimationSequence decoded = AnimationSequence.Read(sequence.Write(RiceFormat), 1, RiceFormat);
         NumericAssert.Near(decoded.Sample(0, 1, AnimationTrackFormat.Float).X, 4, "authored endpoint");
         Assert.Throws<ArgumentOutOfRangeException>(() => sequence.Sample(0, 2, AnimationTrackFormat.Float));
         sequence.Storage = AnimationSequenceStorage.Compact;
-        byte[] compact = sequence.Write(Gta);
-        AnimationSequence expanded = AnimationSequence.Read(compact, 1, Gta);
+        byte[] compact = sequence.Write(RiceFormat);
+        AnimationSequence expanded = AnimationSequence.Read(compact, 1, RiceFormat);
         Assert.Equal(AnimationSequenceStorage.Compact, expanded.Storage);
-        Assert.Equal(compact, expanded.Write(Gta));
-        Assert.Throws<NotSupportedException>(() => AnimationSequence.Read(compact, 1, Rdr2));
-        Assert.Throws<NotSupportedException>(() => expanded.Write(Rdr2));
+        Assert.Equal(compact, expanded.Write(RiceFormat));
+        Assert.Throws<NotSupportedException>(() => AnimationSequence.Read(compact, 1, LaneFormat));
+        Assert.Throws<NotSupportedException>(() => expanded.Write(LaneFormat));
         Assert.IsType<RawFloatChannel>(expanded.Tracks[0].Channels[0]).Values[1] = 8;
-        AnimationSequence edited = AnimationSequence.Read(expanded.Write(Gta), 1, Gta);
+        AnimationSequence edited = AnimationSequence.Read(expanded.Write(RiceFormat), 1, RiceFormat);
         NumericAssert.Near(edited.Sample(0, 0.5f, AnimationTrackFormat.Float).X, 4, "edited compact payload");
         var zeroWidthTable = new AnimationSequence(2);
         var constantTrack = new SequenceTrack();
         constantTrack.Channels.Add(new IndirectQuantizedFloatChannel(3, 0, 1, 7, [], [3, 7]));
         zeroWidthTable.Tracks.Add(constantTrack);
-        NumericAssert.Near(AnimationSequence.Read(zeroWidthTable.Write(Gta), 1, Gta).Sample(0, 0.5f, AnimationTrackFormat.Float).X, 7,
+        NumericAssert.Near(AnimationSequence.Read(zeroWidthTable.Write(RiceFormat), 1, RiceFormat).Sample(0, 0.5f, AnimationTrackFormat.Float).X, 7,
             "declared zero-width indirect codes");
     }
 
@@ -137,17 +137,17 @@ public sealed class AnimationSequenceTests
         int[] codes = Codes(150);
         var sequence = new AnimationSequence(codes.Length) { SegmentSize = 64 };
         sequence.Tracks.Add(new SequenceTrack { Channels = { new LinearFloatChannel(codes, .001f, -2) } });
-        byte[] written = sequence.Write(Rdr2);
-        var read = AnimationSequence.Read(written, 1, Rdr2);
+        byte[] written = sequence.Write(LaneFormat);
+        var read = AnimationSequence.Read(written, 1, LaneFormat);
         var channel = Assert.IsType<LinearFloatChannel>(read.Tracks[0].Channels[0]);
         Assert.Equal(codes, channel.EncodedValues);
         Assert.Equal(.001f, channel.Quantum);
         Assert.Equal(-2f, channel.Offset);
         Assert.Empty(read.SourceDiagnostics);
-        Assert.Equal(written, read.Write(Rdr2));
+        Assert.Equal(written, read.Write(LaneFormat));
         channel.EncodedValues[100] = 7;
         channel.EncodedValues[64] = 123456;
-        var edited = AnimationSequence.Read(read.Write(Rdr2), 1, Rdr2);
+        var edited = AnimationSequence.Read(read.Write(LaneFormat), 1, LaneFormat);
         Assert.Equal(channel.EncodedValues, Assert.IsType<LinearFloatChannel>(edited.Tracks[0].Channels[0]).EncodedValues);
         Assert.Equal(-2 + 7 * .001f, edited.Sample(0, 100, AnimationTrackFormat.Float).X, 4);
     }
@@ -159,20 +159,20 @@ public sealed class AnimationSequenceTests
         codes[64] = -1;
         var sequence = new AnimationSequence(codes.Length);
         sequence.Tracks.Add(new SequenceTrack { Channels = { new LinearFloatChannel(codes, 1) } });
-        Assert.Contains(sequence.Validate(Rdr2).Diagnostics, d => d.Code == AnimationDiagnosticCodes.SequenceLinearLayout);
+        Assert.Contains(sequence.Validate(LaneFormat).Diagnostics, d => d.Code == AnimationDiagnosticCodes.SequenceLinearLayout);
         codes[64] = 5;
         codes[3] = -9;
         var valid = new AnimationSequence(codes.Length);
         valid.Tracks.Add(new SequenceTrack { Channels = { new LinearFloatChannel(codes, 1) } });
-        Assert.Empty(valid.Validate(Rdr2).Diagnostics);
-        Assert.Equal(codes, ((LinearFloatChannel)AnimationSequence.Read(valid.Write(Rdr2), 1, Rdr2).Tracks[0].Channels[0]).EncodedValues);
+        Assert.Empty(valid.Validate(LaneFormat).Diagnostics);
+        Assert.Equal(codes, ((LinearFloatChannel)AnimationSequence.Read(valid.Write(LaneFormat), 1, LaneFormat).Tracks[0].Channels[0]).EncodedValues);
     }
 
     [Fact]
     public void DerivedHashesCoverTheExpandedPayloadOfCompactBlocks()
     {
-        // Neither game combines derived hashes with compact storage; the shared definition hashes the expanded payload.
-        AnimationSequenceFormat format = Rdr2 with
+        // Derived hashes of compact blocks cover the expanded payload.
+        AnimationSequenceFormat format = LaneFormat with
         {
             DecompressCompact = (data, length) => RawDeflate.DecompressExact(data.Span, length),
             CompressCompact = data => RawDeflate.Compress(data.Span, CompressionLevel.Optimal),
@@ -205,7 +205,7 @@ public sealed class AnimationSequenceTests
         sequence.Tracks.Add(rotation);
         sequence.Tracks.Add(new SequenceTrack { Channels = { linear, new StaticFloatChannel(0, 1), new StaticFloatChannel(.25f, 2) } });
         sequence.RootTranslationChannels.Add(linear);
-        byte[] bytes = sequence.Write(Rdr2);
+        byte[] bytes = sequence.Write(LaneFormat);
         // Ten groups: the linear count lives in group 9 and the mover reference names stored group 9.
         int constants = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
         int frameBytes = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(24));
@@ -215,29 +215,29 @@ public sealed class AnimationSequenceTests
         Assert.Equal(9, bytes[^6]);
         Assert.Equal(AnimationSequenceCodec.DataHash(bytes.AsSpan(0x20)), BinaryPrimitives.ReadUInt32LittleEndian(bytes));
 
-        var read = AnimationSequence.Read(bytes, 2, Rdr2);
+        var read = AnimationSequence.Read(bytes, 2, LaneFormat);
         Assert.Same(read.Tracks[1].Channels.OfType<LinearFloatChannel>().Single(), Assert.Single(read.RootTranslationChannels));
         for (int frame = 0; frame < frames; frame += 5)
         {
             Assert.Equal(sequence.Sample(0, frame, AnimationTrackFormat.Quaternion), read.Sample(0, frame, AnimationTrackFormat.Quaternion));
             Assert.Equal(sequence.Sample(1, frame, AnimationTrackFormat.Vector3), read.Sample(1, frame, AnimationTrackFormat.Vector3));
         }
-        Assert.Equal(bytes, read.Write(Rdr2));
+        Assert.Equal(bytes, read.Write(LaneFormat));
 
         byte[] staleHash = bytes.ToArray();
         staleHash[0] ^= 1;
-        var stale = AnimationSequence.Read(staleHash, 2, Rdr2);
+        var stale = AnimationSequence.Read(staleHash, 2, LaneFormat);
         var notice = Assert.Single(stale.SourceDiagnostics);
         Assert.Equal((AnimationDiagnosticCodes.SequenceHash, DiagnosticScope.Rewrite), (notice.Code, notice.Scope));
-        Assert.True(stale.Validate(Rdr2).IsValid);
-        Assert.Equal(bytes, stale.Write(Rdr2));
+        Assert.True(stale.Validate(LaneFormat).IsValid);
+        Assert.Equal(bytes, stale.Write(LaneFormat));
 
         // A stored channel in a group the format leaves unused is not guessed at.
         byte[] unused = bytes.ToArray();
         BinaryPrimitives.WriteUInt16LittleEndian(unused.AsSpan(countTable + 6 * 2), 1);
-        Assert.Throws<NotSupportedException>(() => AnimationSequence.Read(unused, 2, Rdr2));
-        // GTA V's nine-group table has no linear group 9 or lane encoding; the RDR2 block is not readable as GTA V.
-        Assert.ThrowsAny<Exception>(() => AnimationSequence.Read(bytes, 2, Gta));
+        Assert.Throws<NotSupportedException>(() => AnimationSequence.Read(unused, 2, LaneFormat));
+        // The nine-group table has no linear group 9 or lane encoding, so a lane-encoded block is not readable with it.
+        Assert.ThrowsAny<Exception>(() => AnimationSequence.Read(bytes, 2, RiceFormat));
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public sealed class AnimationSequenceTests
         sequence.Tracks.Add(new SequenceTrack { Channels = { mover } });
         sequence.RecalculateRootMotionChannels([1], []);
         Assert.Same(mover, Assert.Single(sequence.RootTranslationChannels));
-        var read = AnimationSequence.Read(sequence.Write(Gta), 2, Gta);
+        var read = AnimationSequence.Read(sequence.Write(RiceFormat), 2, RiceFormat);
         Assert.Empty(read.RootTranslationChannels);
         Assert.True(read.BindRootReferences([1], []));
         Assert.IsType<RawFloatChannel>(Assert.Single(read.RootTranslationChannels));

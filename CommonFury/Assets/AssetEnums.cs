@@ -9,7 +9,7 @@ public enum DrawableLod
     VeryLow
 }
 
-/// <summary>Bone flag bits 0–10, shared by both games' skeletons. Higher bits differ per game; they are preserved but unnamed.</summary>
+/// <summary>Bone flag bits 0–10. Higher bits vary by format; they are preserved but unnamed.</summary>
 [Flags]
 public enum BoneChannelFlags : uint
 {
@@ -29,7 +29,6 @@ public enum BoneChannelFlags : uint
     ScaleZ = 0x400,
     Rotation = RotateX | RotateY | RotateZ,
     Translation = TranslateX | TranslateY | TranslateZ,
-    /// <summary>In RDR2, any of these bits enables the vector scale channel.</summary>
     Scale = ScaleX | ScaleY | ScaleZ,
     /// <summary>The default for authored bones.</summary>
     Animatable = Rotation | Translation,
@@ -71,7 +70,5 @@ public enum YmapContentFlags : uint
     EntitiesCritical = 0x200,
     /// <summary>Instanced prop or grass lists, separate from the entity list.</summary>
     InstanceList = 0x400,
-    /// <summary>In RDR2, excludes the map from initial automatic streaming and keeps its resource loaded.
-    /// Its meaning in GTA V is unverified.</summary>
     NoAutomaticStreaming = 0x800
 }

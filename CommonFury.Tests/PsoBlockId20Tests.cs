@@ -7,8 +7,8 @@ using Xunit;
 
 namespace CommonFury.Tests;
 
-// Synthetic RDR2 PSO fixtures (20-bit pointers, 24-byte PMAP header, paged strings).
-public sealed class PsoRdr2Tests
+// Synthetic PSO fixtures (20-bit pointers, 24-byte PMAP header, paged strings).
+public sealed class PsoBlockId20Tests
 {
     private static byte[] Fixture(string name) => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "ReferenceData", "pso", name));
     private static PsoValue Field(PsoNode node, uint hash) => node.Fields.Single(f => f.Entry.NameHash == hash).Value;
@@ -18,7 +18,7 @@ public sealed class PsoRdr2Tests
     public void TypedGraphArraysAndHalfPreserveExactSource()
     {
         Assert.Equal(0x5A63E346u, Jenkins.PsoChecksum([1, 255, 2, 128]));
-        byte[] source = Fixture("rdr2_sample.pso"), original = source.ToArray();
+        byte[] source = Fixture("blockid20_sample.pso"), original = source.ToArray();
         var file = PsoFile.Read(source);
         source[0] = 0;
         Assert.Equal(PsoPointerLayout.BlockId20, file.PointerLayout);
@@ -37,7 +37,7 @@ public sealed class PsoRdr2Tests
     [Fact]
     public void InvalidFieldIsIsolatedWithoutDiscardingOtherFieldsWhenRequested()
     {
-        byte[] source = Fixture("rdr2_sample.pso");
+        byte[] source = Fixture("blockid20_sample.pso");
         BinaryPrimitives.WriteUInt32BigEndian(source.AsSpan(0x28), 999);
         var file = PsoFile.Read(source);
         Assert.ThrowsAny<InvalidDataException>(() => file.ReadRoot());
@@ -53,14 +53,14 @@ public sealed class PsoRdr2Tests
     [Fact]
     public void SectionsLimitsAndLegacyPointerLayout()
     {
-        byte[] data = Fixture("rdr2_sample.pso");
+        byte[] data = Fixture("blockid20_sample.pso");
         int psin = (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(4));
         Assert.Throws<InvalidDataException>(() => PsoFile.Read(data[..^1]));
         Assert.Throws<InvalidDataException>(() => PsoFile.Read([.. data, .. data[..psin]]));
         var bounded = PsoFile.Read(data).ReadRoot(new(maximumArrayElements: 2, continueOnFieldErrors: true));
         Assert.False(bounded.Report.IsValid);
         Assert.IsType<PsoMalformed>(Field(bounded.Root, 0x22222222));
-        // Convert the exact PMAP extent to its GTA 16-byte header form.
+        // Convert the exact PMAP extent to the 16-byte header form.
         int pmapLength = (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(psin + 4));
         byte[] legacy = [.. data[..(psin + 12)], .. data.AsSpan(psin + 16, 4), .. data[(psin + 24)..]];
         BinaryPrimitives.WriteUInt32BigEndian(legacy.AsSpan(psin + 4), (uint)(pmapLength - 8));
@@ -76,7 +76,7 @@ public sealed class PsoRdr2Tests
     [Fact]
     public void PagedStringsFollowWrappedPointersAcrossFourKilobytePages()
     {
-        byte[] raw = Fixture("rdr2_paged_txd.ymf");
+        byte[] raw = Fixture("blockid20_paged_txd.ymf");
         var file = PsoFile.Read(raw);
         Assert.True(file.Blocks.Any(block => block.NameHash == 1 && block.Length > 0x1000), "Fixture must cross a string page.");
         var document = file.ReadRoot();
@@ -95,21 +95,21 @@ public sealed class PsoRdr2Tests
     [Fact]
     public void DependencyManifestsDecodeHashedStrings()
     {
-        var direct = PsoFile.Read(Fixture("rdr2_dependency.ymf")).ReadRoot().Root;
+        var direct = PsoFile.Read(Fixture("blockid20_dependency.ymf")).ReadRoot().Root;
         PsoNode dependency = Assert.IsType<PsoNodeValue>(Assert.Single(Assert.IsType<PsoArray>(Assert.Single(direct.Fields).Value).Values)).Node;
         Assert.Equal(0x11111111u, Assert.IsType<PsoHash>(dependency.Fields[0].Value).Value.Value);
-        var tables = PsoFile.Read(Fixture("rdr2_hash_dependency.ymf")).ReadRoot().Root;
+        var tables = PsoFile.Read(Fixture("blockid20_hash_dependency.ymf")).ReadRoot().Root;
         PsoNode table = Assert.IsType<PsoNodeValue>(Assert.Single(Assert.IsType<PsoArray>(Assert.Single(tables.Fields).Value).Values)).Node;
         Assert.Equal(0xC51A77D5u, table.TypeHash);
         Assert.Equal(new uint[] { 0x55555555, 0x66666666 },
             Assert.IsType<PsoArray>(table.Fields[1].Value).Values.Select(v => Assert.IsType<PsoHash>(v).Value.Value));
-        Assert.Equal(7, Assert.IsType<PsoInteger>(Field(PsoFile.Read(Fixture("rdr2_pso.ymt")).ReadRoot().Root, 0x55667788)).Value);
+        Assert.Equal(7, Assert.IsType<PsoInteger>(Field(PsoFile.Read(Fixture("blockid20_pso.ymt")).ReadRoot().Root, 0x55667788)).Value);
     }
 
     [Fact]
     public void CyclesUnknownTypesAndRecordBoundsAreExplicit()
     {
-        byte[] cycle = Fixture("rdr2_sample.pso");
+        byte[] cycle = Fixture("blockid20_sample.pso");
         int schema = PsoTests.FindSection(cycle, PsoSectionId.Psch), first = schema + 32;
         cycle[first + 4] = (byte)PsoDataType.Structure;
         cycle[first + 5] = 3;
@@ -118,13 +118,13 @@ public sealed class PsoRdr2Tests
         var root = file.ReadRoot().Root;
         Assert.Same(root, Assert.IsType<PsoNodeValue>(Field(root, 0x10)).Node);
         Assert.Equal(cycle, file.Write());
-        byte[] unknown = Fixture("rdr2_sample.pso");
+        byte[] unknown = Fixture("blockid20_sample.pso");
         unknown[first + 4] = 0xFE;
         var opaque = PsoFile.Read(unknown).ReadRoot();
         Assert.IsType<PsoUnsupported>(Field(opaque.Root, 0x10));
         Assert.Equal(PsoDiagnosticCodes.FieldUnsupported, Assert.Single(opaque.Report.Diagnostics).Code);
         // A scalar may fit PSIN but must not escape the declared root instance.
-        byte[] shortened = Fixture("rdr2_sample.pso");
+        byte[] shortened = Fixture("blockid20_sample.pso");
         BinaryPrimitives.WriteInt32BigEndian(shortened.AsSpan(schema + 24), 1);
         var bounded = PsoFile.Read(shortened).ReadRoot(new(continueOnFieldErrors: true));
         Assert.True(Assert.IsType<PsoBoolean>(Field(bounded.Root, 0x10)).Value);
@@ -135,7 +135,7 @@ public sealed class PsoRdr2Tests
     [Fact]
     public void EnumsAndUnknownSectionsRetainTheirData()
     {
-        byte[] original = Fixture("rdr2_sample.pso");
+        byte[] original = Fixture("blockid20_sample.pso");
         int schema = PsoTests.FindSection(original, PsoSectionId.Psch);
         byte[] old = original[schema..], updated = new byte[old.Length + 20];
         old.AsSpan(0, 20).CopyTo(updated);
@@ -157,9 +157,9 @@ public sealed class PsoRdr2Tests
     }
 
     [Fact]
-    public void GraphWriterProducesTheRdr2LayoutAndRoundTrips()
+    public void GraphWriterProducesTheBlockId20LayoutAndRoundTrips()
     {
-        var file = PsoFile.Read(Fixture("rdr2_paged_txd.ymf"));
+        var file = PsoFile.Read(Fixture("blockid20_paged_txd.ymf"));
         var document = file.ReadRoot();
         PsoFile copy = PsoFile.FromGraph(file.Schema, document.Root, PsoPointerLayout.BlockId20);
         byte[] bytes = copy.Write();

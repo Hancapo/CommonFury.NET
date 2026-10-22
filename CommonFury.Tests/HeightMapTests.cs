@@ -8,8 +8,8 @@ namespace CommonFury.Tests;
 
 public sealed class HeightMapTests
 {
-    // GTA V runtime limits, so game-level validation is exercised.
-    private static readonly HeightMapExportLimits GtaLimits = new()
+    // Example runtime limits, so limit validation is exercised.
+    private static readonly HeightMapExportLimits RuntimeLimits = new()
     {
         MinimumDimension = 10, MaximumDimension = 1000, MaximumBoundsMagnitude = 16000,
         RequiredVersion = 1, RequireByteCells = true, RejectInvertedCells = true
@@ -105,25 +105,25 @@ public sealed class HeightMapTests
     public void ModelInvariants()
     {
         var map = new HeightMap<byte>(10, 10, new(new(0, 0, 0), new(10, 10, 255)));
-        Assert.True(map.Validate(GtaLimits).IsValid, "Valid UINT8 model rejected.");
+        Assert.True(map.Validate(RuntimeLimits).IsValid, "Valid UINT8 model rejected.");
         map.MinimumCells[5] = 4;
-        Assert.True(map.Validate(GtaLimits).Diagnostics.Any(x => x.Code == "heightmap.cell.inverted" && x.Path == "cells[5]"), "Missing cell diagnostic.");
-        Assert.Throws<ValidationException>(() => HeightMapCodec.Write(map, GtaLimits));
+        Assert.True(map.Validate(RuntimeLimits).Diagnostics.Any(x => x.Code == "heightmap.cell.inverted" && x.Path == "cells[5]"), "Missing cell diagnostic.");
+        Assert.Throws<ValidationException>(() => HeightMapCodec.Write(map, RuntimeLimits));
         Assert.True(map.Validate().IsValid, "Structural validation must only warn about inverted cells.");
         map.MaximumCells[5] = 5;
         map.Flags = (HeightMapFlags)0x80;
-        Assert.True(map.Validate().IsValid && !map.Validate(GtaLimits).IsValid, "Unknown flag policy mismatch.");
+        Assert.True(map.Validate().IsValid && !map.Validate(RuntimeLimits).IsValid, "Unknown flag policy mismatch.");
         map.Flags = HeightMapFlags.RleData;
         Assert.Throws<ArgumentException>(() => map.WaterCells = new bool[99]);
         map.WaterCells = new bool[100];
         map.WaterCells[99] = true;
-        byte[] encoded = HeightMapCodec.Write(map, GtaLimits);
+        byte[] encoded = HeightMapCodec.Write(map, RuntimeLimits);
         Assert.True(HeightMapCodec.Read<byte>(encoded).WaterCells![99], "Last mask bit lost.");
         Assert.True(map.Flags == HeightMapFlags.RleData, "Writer mutated input flags.");
         map.Version = 2;
-        Assert.True(!map.Validate(GtaLimits).IsValid && map.Validate().IsValid, "Version policy mismatch.");
+        Assert.True(!map.Validate(RuntimeLimits).IsValid && map.Validate().IsValid, "Version policy mismatch.");
         var floatMap = new HeightMap<float>(1, 1, map.Bounds, [0], [1]);
-        Assert.True(floatMap.Validate().IsValid && !floatMap.Validate(GtaLimits).IsValid, "Tool format policy mismatch.");
+        Assert.True(floatMap.Validate().IsValid && !floatMap.Validate(RuntimeLimits).IsValid, "Tool format policy mismatch.");
         floatMap.MinimumCells[0] = float.NaN;
         Assert.Throws<ValidationException>(() => HeightMapCodec.Write(floatMap));
         // Cover vector boundaries and tails; require every invalid cell's diagnostic.

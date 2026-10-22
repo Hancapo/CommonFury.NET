@@ -96,7 +96,7 @@ public static class HeightMapCodec
             ByteOrder = order,
             Layout = layout
         };
-        // Only the inverted-cell rule is requested; flags and other game limits stay unchecked, as without the option.
+        // Only the inverted-cell rule is requested; flags and other target limits stay unchecked, as without the option.
         result.Validate(rejectInvertedCells ? new HeightMapExportLimits { RejectInvertedCells = true, SupportedFlags = (HeightMapFlags)uint.MaxValue } : null)
             .ThrowIfInvalid();
         return result;
@@ -104,7 +104,7 @@ public static class HeightMapCodec
 
     /// <summary>Validates and encodes a height grid without modifying it. Layout and byte order default to the grid's own
     /// <see cref="HeightMap{T}.Layout"/> and <see cref="HeightMap{T}.ByteOrder"/>. Without <paramref name="limits"/> only the
-    /// structural contract is enforced; pass the target game's limits to reject data it cannot load.</summary>
+    /// structural contract is enforced; pass the target's limits to reject data it cannot load.</summary>
     public static byte[] Write<T>(HeightMap<T> map, HeightMapExportLimits? limits = null, HeightMapLayout? layout = null,
         ByteOrder? byteOrder = null) where T : unmanaged, INumber<T>
     {

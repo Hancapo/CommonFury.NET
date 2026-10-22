@@ -34,9 +34,9 @@ public sealed class PsoMapTests
         return builder.Build();
     }
 
-    // Independent RDR2 fixture: 24-byte PMAP header, 24-byte map storage, two pairs of eight bytes.
+    // Independent 20-bit fixture: 24-byte PMAP header, 24-byte map storage, two pairs of eight bytes.
     // Field hashes moved out of the anonymous-descriptor range 0x100-0xCFF (originally 0x123, 0x111 and 0x222).
-    internal static byte[] Rdr2Fixture()
+    internal static byte[] BlockId20Fixture()
     {
         byte[] b = new byte[224];
         void W(int at, uint v) => BinaryPrimitives.WriteUInt32BigEndian(b.AsSpan(at), v);
@@ -89,9 +89,9 @@ public sealed class PsoMapTests
     }
 
     [Fact]
-    public void Rdr2BinaryMapIsDecodedInsteadOfBeingMistakenForAPointer()
+    public void BlockId20BinaryMapIsDecodedInsteadOfBeingMistakenForAPointer()
     {
-        var file = PsoFile.Read(Rdr2Fixture());
+        var file = PsoFile.Read(BlockId20Fixture());
         Assert.Equal(PsoPointerLayout.BlockId20, file.PointerLayout);
         var document = file.ReadRoot();
         Assert.True(document.Report.IsValid);
@@ -100,7 +100,7 @@ public sealed class PsoMapTests
         Assert.Equal(2, map.Entries.Count);
         Assert.Equal(7, Assert.IsType<PsoInteger>(map.Entries[0].Fields[0].Value).Value);
         Assert.Equal(-4, Assert.IsType<PsoInteger>(map.Entries[1].Fields[1].Value).Value);
-        // The 24-byte map storage also round-trips through the graph writer in the RDR2 layout.
+        // The 24-byte map storage also round-trips through the graph writer in the 20-bit layout.
         var copy = PsoFile.FromGraph(file.Schema, document.Root, PsoPointerLayout.BlockId20);
         Assert.Equal(PsoPointerLayout.BlockId20, PsoFile.Read(copy.Write()).PointerLayout);
         var copied = Assert.IsType<PsoMap>(copy.ReadRoot().Root.Fields[0].Value);
@@ -111,9 +111,9 @@ public sealed class PsoMapTests
     [InlineData(24, 0u)]
     [InlineData(32, 0x00030003u)]
     [InlineData(184, 0xFFFF0001u)]
-    public void MalformedRdr2MapIsReportedOrRejected(int at, uint value)
+    public void MalformedBlockId20MapIsReportedOrRejected(int at, uint value)
     {
-        byte[] bytes = Rdr2Fixture();
+        byte[] bytes = BlockId20Fixture();
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(at), value);
         var file = PsoFile.Read(bytes);
         Assert.ThrowsAny<InvalidDataException>(() => file.ReadRoot());

@@ -9,7 +9,7 @@ public sealed record PsoFileOptions
 {
     /// <summary>Forces a pointer layout; null detects it from the exact PMAP extent and falls back to <see cref="PsoPointerLayout.BlockId12"/>.</summary>
     public PsoPointerLayout? PointerLayout { get; init; }
-    /// <summary>Accepts distinct PSCH type hashes that share one definition offset (RDR2).</summary>
+    /// <summary>Accepts distinct PSCH type hashes that share one definition offset.</summary>
     public bool AllowAliasedSchemaDefinitions { get; init; }
 }
 

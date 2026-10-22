@@ -53,7 +53,7 @@ public readonly record struct HeightMapBounds(Vector3 Minimum, Vector3 Maximum)
     }
 }
 
-/// <summary>Runtime limits a game imposes on exported height maps. Each game library supplies its own values;
+/// <summary>Limits a target runtime imposes on exported height maps, supplied by the caller;
 /// validation without limits checks only the structural contract.</summary>
 public sealed record HeightMapExportLimits
 {
@@ -63,13 +63,13 @@ public sealed record HeightMapExportLimits
     public int MaximumDimension { get; init; } = ushort.MaxValue;
     /// <summary>Largest accepted absolute value of any bounds coordinate.</summary>
     public float MaximumBoundsMagnitude { get; init; } = float.MaxValue;
-    /// <summary>Version byte the game reads, or null to accept any version.</summary>
+    /// <summary>Version byte the target reads, or null to accept any version.</summary>
     public byte? RequiredVersion { get; init; }
-    /// <summary>Whether the game reads only byte cells.</summary>
+    /// <summary>Whether the target reads only byte cells.</summary>
     public bool RequireByteCells { get; init; }
     /// <summary>Whether cells whose minimum exceeds their maximum are errors rather than warnings.</summary>
     public bool RejectInvertedCells { get; init; }
-    /// <summary>Flag bits the game understands; other bits are reported as unsupported.</summary>
+    /// <summary>Flag bits the target understands; other bits are reported as unsupported.</summary>
     public HeightMapFlags SupportedFlags { get; init; } = HeightMapFlags.RleData | HeightMapFlags.WaterMask;
 }
 
@@ -161,7 +161,7 @@ public sealed partial class HeightMap<T> where T : unmanaged, INumber<T>
     public HeightMapLayout Layout { get; set; } = HeightMapLayout.TrimmedRows;
 
     /// <summary>Checks grid dimensions, sample arrays and bounds. Without limits only the structural contract is checked and
-    /// inverted cells are warnings; with limits, the game's export constraints are checked too.</summary>
+    /// inverted cells are warnings; with limits, the target's export constraints are checked too.</summary>
     public ValidationReport Validate(HeightMapExportLimits? limits = null)
     {
         int size = HeightCell<T>.Size;
@@ -186,7 +186,7 @@ public sealed partial class HeightMap<T> where T : unmanaged, INumber<T>
             if (limits.RequiredVersion is { } version && Version != version)
                 diagnostics.Add(new Diagnostic(HeightMapDiagnosticCodes.VersionRuntime, $"Expected version {version}.", "version"));
             if (limits.RequireByteCells && size != 1)
-                diagnostics.Add(new Diagnostic(HeightMapDiagnosticCodes.CellFormatRuntime, "Game height maps require UINT8 cells.", "cell_format"));
+                diagnostics.Add(new Diagnostic(HeightMapDiagnosticCodes.CellFormatRuntime, "The target requires UINT8 cells.", "cell_format"));
             if ((Flags & ~limits.SupportedFlags) != 0)
                 diagnostics.Add(new Diagnostic(HeightMapDiagnosticCodes.FlagsUnsupported, "Unsupported height-map flags.", "flags"));
         }

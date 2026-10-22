@@ -3,7 +3,7 @@ using CommonFury.Binary;
 
 namespace CommonFury.Animations;
 
-// Rice-coded linear channels (GTA V): [0] word count, [1] address bits | initial bits << 8 | Rice divisor << 16, [2] quantum,
+// Rice-coded linear channels: [0] word count, [1] address bits | initial bits << 8 | Rice divisor << 16, [2] quantum,
 // [3] offset; then per-segment delta addresses, per-segment initial codes and Rice-coded sign-magnitude second differences.
 internal static partial class AnimationSequenceCodec
 {

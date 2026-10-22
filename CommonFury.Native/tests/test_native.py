@@ -251,10 +251,10 @@ class Metadata(unittest.TestCase):
         self.assertEqual(lib.cf_rbf_rewrite(b"RBF0", 4, C.byref(Buffer())), INVALID_DATA)
 
     def test_pso_both_pointer_layouts(self):
-        expected_bits = {"all_types.pso": 12, "rdr2_sample.pso": 20, "rdr2_paged_txd.ymf": 20}
+        expected_bits = {"all_types.pso": 12, "blockid20_sample.pso": 20, "blockid20_paged_txd.ymf": 20}
         for name, bits in expected_bits.items():
             data = (DATA / "pso" / name).read_bytes()
-            flags = 1 if name.startswith("rdr2") else 0
+            flags = 1 if name.startswith("blockid20") else 0
             info = PsoInfo()
             check(lib.cf_pso_get_info(data, len(data), flags, C.byref(info), C.sizeof(info)))
             self.assertEqual(info.pointer_bits, bits, name)

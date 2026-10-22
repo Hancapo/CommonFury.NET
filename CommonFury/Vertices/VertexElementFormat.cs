@@ -16,10 +16,10 @@ public enum VertexElementFormat
     Byte4,
     UNorm8x4,
     SNorm8x4,
-    /// <summary>Unsigned 10/10/10/2 fields decoded to [0,1] (DXGI R10G10B10A2_UNORM, GTA V).</summary>
+    /// <summary>Unsigned 10/10/10/2 fields decoded to [0,1] (DXGI R10G10B10A2_UNORM).</summary>
     UNorm10x3A2,
     /// <summary>The same 10/10/10/2 bits remapped to [-1,1] as <c>value * 2 - 1</c>, not sign-extended
-    /// (DXGI R10G10B10A2_UNORM as RDR2 uses it for normals).</summary>
+    /// (DXGI R10G10B10A2_UNORM storing signed normals).</summary>
     BiasedUNorm10x3A2,
     UNorm16,
     UNorm16x2,
@@ -30,19 +30,19 @@ public enum VertexElementFormat
     Int16x4
 }
 
-/// <summary>Selects how DXGI R10G10B10A2_UNORM (format 24) vertex data is interpreted. The two games differ, so there is no default.</summary>
+/// <summary>Selects how DXGI R10G10B10A2_UNORM (format 24) vertex data is interpreted. Formats differ, so there is no default.</summary>
 public enum Rgb10A2Range
 {
-    /// <summary>Decode to [0,1]: <see cref="VertexElementFormat.UNorm10x3A2"/> (GTA V).</summary>
+    /// <summary>Decode to [0,1]: <see cref="VertexElementFormat.UNorm10x3A2"/>.</summary>
     ZeroToOne,
-    /// <summary>Decode to [-1,1]: <see cref="VertexElementFormat.BiasedUNorm10x3A2"/> (RDR2).</summary>
+    /// <summary>Decode to [-1,1]: <see cref="VertexElementFormat.BiasedUNorm10x3A2"/>.</summary>
     MinusOneToOne
 }
 
 /// <summary>Sizes of vertex element formats and their DXGI format identifiers in gen9 declarations.</summary>
 public static class VertexElementFormats
 {
-    /// <summary>DXGI format identifier of R10G10B10A2_UNORM, whose range interpretation differs between games.</summary>
+    /// <summary>DXGI format identifier of R10G10B10A2_UNORM, whose range interpretation varies by format.</summary>
     public const byte Rgb10A2Dxgi = 24;
 
     /// <summary>Encoded bytes per element.</summary>

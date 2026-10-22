@@ -7,10 +7,10 @@ namespace CommonFury.Tests;
 
 public sealed class BvhTests
 {
-    private static readonly BvhBuildOptions GtaGeometry = new(4, BvhSplit.UpperMedian, BvhLeafIds.OrderPosition);
-    private static readonly BvhBuildOptions GtaComposite = new(1, BvhSplit.UpperMedian, BvhLeafIds.FirstItemIndex);
-    private static readonly BvhBuildOptions RdrGeometry = new(4, BvhSplit.LowerMedian, BvhLeafIds.OrderPosition);
-    private static readonly BvhBuildOptions RdrComposite = new(1, BvhSplit.LowerMedian, BvhLeafIds.FirstItemIndex);
+    private static readonly BvhBuildOptions UpperMedianGeometry = new(4, BvhSplit.UpperMedian, BvhLeafIds.OrderPosition);
+    private static readonly BvhBuildOptions UpperMedianComposite = new(1, BvhSplit.UpperMedian, BvhLeafIds.FirstItemIndex);
+    private static readonly BvhBuildOptions LowerMedianGeometry = new(4, BvhSplit.LowerMedian, BvhLeafIds.OrderPosition);
+    private static readonly BvhBuildOptions LowerMedianComposite = new(1, BvhSplit.LowerMedian, BvhLeafIds.FirstItemIndex);
 
     [Theory]
     [InlineData(1)] [InlineData(2)] [InlineData(5)] [InlineData(37)] [InlineData(600)]
@@ -18,7 +18,7 @@ public sealed class BvhTests
     {
         var random = new Random(count);
         BvhItem[] items = RandomItems(random, count, sparse: true);
-        foreach (var (options, childIndices) in new[] { (GtaGeometry, false), (GtaComposite, true) })
+        foreach (var (options, childIndices) in new[] { (UpperMedianGeometry, false), (UpperMedianComposite, true) })
         {
             var expected = UpperMedianReference.Create(items, options.LeafSize, childIndices);
             BvhBuild actual = BvhBuilder.Build(items, options);
@@ -37,7 +37,7 @@ public sealed class BvhTests
     public void MatchesLowerMedianBuilderAndDivideCheckedQuantization(int count)
     {
         var random = new Random(count + 1000);
-        foreach (var (options, childIndices) in new[] { (RdrGeometry, false), (RdrComposite, true) })
+        foreach (var (options, childIndices) in new[] { (LowerMedianGeometry, false), (LowerMedianComposite, true) })
         {
             // The lower-median reference builds over dense boxes, then maps leaf positions to child slots for composites.
             BvhItem[] items = RandomItems(random, count, sparse: childIndices);
@@ -65,12 +65,12 @@ public sealed class BvhTests
     {
         // Eight polygons at leaf size four.
         Aabb3[] boxes = Enumerable.Range(0, 8).Select(i => Aabb3.FromCenterSize(new(i * 3, 0, 0), Vector3.One)).ToArray();
-        BvhBuild build = BvhBuilder.Build(boxes, RdrGeometry);
+        BvhBuild build = BvhBuilder.Build(boxes, LowerMedianGeometry);
         Assert.Equal(3, build.Nodes.Count);
         Assert.Equal((ushort)3, build.Nodes[0].ItemId);
         Assert.Equal(0, build.Nodes[0].ItemCount);
         Assert.Equal(8, build.Nodes.Sum(n => n.ItemCount));
-        Assert.All(BvhBuilder.Build(boxes, GtaGeometry).Nodes.Where(n => n.IsLeaf), n => Assert.InRange(n.ItemCount, (byte)1, (byte)4));
+        Assert.All(BvhBuilder.Build(boxes, UpperMedianGeometry).Nodes.Where(n => n.IsLeaf), n => Assert.InRange(n.ItemCount, (byte)1, (byte)4));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public sealed class BvhTests
     {
         // Composite leaves keep child slot indexes, including skipped slots.
         BvhItem[] items = Enumerable.Range(0, 8).Select(i => new BvhItem(i * 2, Aabb3.FromCenterSize(new(i * 10, 0, 0), Vector3.One))).ToArray();
-        BvhBuild build = BvhBuilder.Build(items, GtaComposite);
+        BvhBuild build = BvhBuilder.Build(items, UpperMedianComposite);
         Assert.Equal(Enumerable.Range(0, 8).Select(i => (ushort)(i * 2)), build.Nodes.Where(n => n.IsLeaf).Select(n => n.ItemId).Order());
     }
 
@@ -86,9 +86,9 @@ public sealed class BvhTests
     public void SplitRuleIsExplicit()
     {
         Aabb3[] boxes = Enumerable.Range(0, 3).Select(i => Aabb3.FromCenterSize(new(i, 0, 0), new(0.5f))).ToArray();
-        Assert.Equal(3, BvhBuilder.Build(boxes, GtaComposite).Nodes[1].ItemId); // left branch over two items: three nodes
-        Assert.True(BvhBuilder.Build(boxes, RdrComposite).Nodes[1].IsLeaf);     // left leaf with one item
-        Assert.Empty(BvhBuilder.Build(ReadOnlySpan<Aabb3>.Empty, GtaGeometry).Nodes);
+        Assert.Equal(3, BvhBuilder.Build(boxes, UpperMedianComposite).Nodes[1].ItemId); // left branch over two items: three nodes
+        Assert.True(BvhBuilder.Build(boxes, LowerMedianComposite).Nodes[1].IsLeaf);     // left leaf with one item
+        Assert.Empty(BvhBuilder.Build(ReadOnlySpan<Aabb3>.Empty, UpperMedianGeometry).Nodes);
         Assert.Throws<ArgumentOutOfRangeException>(() => BvhBuilder.Build(boxes, new(0, BvhSplit.LowerMedian, BvhLeafIds.OrderPosition)));
         Assert.Throws<ArgumentOutOfRangeException>(() => BvhBuilder.Build(boxes, new(1, (BvhSplit)9, BvhLeafIds.OrderPosition)));
     }

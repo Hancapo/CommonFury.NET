@@ -3,7 +3,7 @@ using Xunit;
 
 namespace CommonFury.Tests;
 
-// How a game library adds its own token constants while callers keep the DlcDataFileType.X spelling.
+// How a consuming library adds its own token constants while callers keep the DlcDataFileType.X spelling.
 internal static class GameDlcTokens
 {
     extension(DlcDataFileType)

@@ -55,7 +55,7 @@ CF_API int32_t CF_CALL cf_elf_hash(const uint8_t *ascii, uint64_t length, uint32
 CF_API int32_t CF_CALL cf_fletcher32(const uint8_t *data, uint64_t length, uint32_t *out_hash);
 
 /* Raw DEFLATE (RFC 1951). level: 0 optimal, 1 fastest, 2 none, 3 smallest. Decoding rejects truncated
-   streams and trailing bytes. zero_history != 0 seeds a 32 KiB zero window (GTA V RSC7 resources). */
+   streams and trailing bytes. zero_history != 0 seeds a 32 KiB zero window, for streams that reference bytes before their start. */
 CF_API int32_t CF_CALL cf_deflate_compress(const uint8_t *data, uint64_t length, uint32_t level, cf_buffer *out_buffer);
 CF_API int32_t CF_CALL cf_deflate_decompress(const uint8_t *data, uint64_t length, uint32_t maximum_length, uint32_t zero_history, cf_buffer *out_buffer);
 /* Output must be exactly destination_length bytes. */
@@ -81,8 +81,8 @@ CF_API int32_t CF_CALL cf_bc1_decode(const uint8_t *blocks, uint64_t length, uin
 CF_API int32_t CF_CALL cf_rbf_validate(const uint8_t *data, uint64_t length, cf_buffer *out_diagnostics);
 CF_API int32_t CF_CALL cf_rbf_rewrite(const uint8_t *data, uint64_t length, cf_buffer *out_buffer);
 
-/* PSO (PSIN). flags: 1 allow aliased schema definitions (RDR2), 2 force 12-bit block ids (GTA V),
-   4 force 20-bit block ids (RDR2); without 2 or 4 the layout is detected. */
+/* PSO (PSIN). flags: 1 allow aliased schema definitions, 2 force 12-bit block ids,
+   4 force 20-bit block ids; without 2 or 4 the layout is detected. */
 enum cf_pso_flags { CF_PSO_ALLOW_ALIASED_SCHEMA = 1, CF_PSO_BLOCK_ID_12 = 2, CF_PSO_BLOCK_ID_20 = 4 };
 typedef struct cf_pso_info {
     uint32_t pointer_bits, sections, blocks, root_block_id, structs, enums;
@@ -107,7 +107,7 @@ CF_API int32_t CF_CALL cf_heightmap_read(const uint8_t *data, uint64_t length, u
 CF_API int32_t CF_CALL cf_heightmap_write(const cf_heightmap_info *info, uint32_t info_size, const uint8_t *minimum, const uint8_t *maximum,
     uint64_t cell_bytes, const uint8_t *water, uint64_t water_length, cf_buffer *out_buffer);
 
-/* Vertex elements by DXGI format. range selects DXGI 24 (R10G10B10A2) decoding: 0 [0,1] (GTA V), 1 [-1,1] (RDR2).
+/* Vertex elements by DXGI format. range selects DXGI 24 (R10G10B10A2) decoding: 0 [0,1], 1 [-1,1].
    values holds count XYZW floats; elements are stride bytes apart. Encoding is little-endian. */
 CF_API int32_t CF_CALL cf_vertex_format_size(uint32_t dxgi, uint32_t range, uint32_t *out_size);
 CF_API int32_t CF_CALL cf_vertex_decode(uint32_t dxgi, uint32_t range, uint32_t big_endian, const uint8_t *data, uint64_t length,
@@ -115,7 +115,7 @@ CF_API int32_t CF_CALL cf_vertex_decode(uint32_t dxgi, uint32_t range, uint32_t 
 CF_API int32_t CF_CALL cf_vertex_encode(uint32_t dxgi, uint32_t range, const float *values, uint64_t count, uint32_t stride,
     uint8_t *data, uint64_t length);
 
-/* BVH over count boxes given as (min xyz, max xyz) floats. split: 0 upper median (GTA V), 1 lower median (RDR2).
+/* BVH over count boxes given as (min xyz, max xyz) floats. split: 0 upper median, 1 lower median.
    leaf_ids: 0 position in out_order (geometry), 1 caller index (composites). out_nodes holds preorder cf_bvh_node
    records; out_order holds int32 caller indices in leaf storage order. */
 typedef struct cf_bvh_node {

@@ -4,7 +4,7 @@ using CommonFury.Numerics;
 namespace CommonFury.Animations;
 
 /// <summary>Identifies how an animation channel stores or reconstructs its samples. These are logical kinds, not stored
-/// channel-group indices: each game numbers its groups differently, so readers and writers translate through an
+/// channel-group indices: formats number their groups differently, so readers and writers translate through an
 /// <see cref="AnimationChannelGroupTable"/>.</summary>
 public enum AnimationChannelType : byte
 {

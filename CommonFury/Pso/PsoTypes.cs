@@ -61,9 +61,9 @@ public static class PsoSectionId
 /// <summary>Number of low pointer bits that hold the block ID; also fixes the PMAP header size.</summary>
 public enum PsoPointerLayout
 {
-    /// <summary>12-bit block ID, 20-bit offset, 16-byte PMAP header (GTA V).</summary>
+    /// <summary>12-bit block ID, 20-bit offset, 16-byte PMAP header.</summary>
     BlockId12 = 12,
-    /// <summary>20-bit block ID, 12-bit offset, 24-byte PMAP header (RDR2). Offsets in blocks larger than 4 KiB wrap per page;
+    /// <summary>20-bit block ID, 12-bit offset, 24-byte PMAP header. Offsets in blocks larger than 4 KiB wrap per page;
     /// the reader reconstructs them from traversal order.</summary>
     BlockId20 = 20
 }

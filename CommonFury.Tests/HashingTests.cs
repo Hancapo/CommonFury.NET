@@ -17,7 +17,7 @@ public sealed class HashingTests : IDisposable
     {
         Assert.True(Jenkins.Hash("a") == 3392050242 && Jenkins.Hash("ymap") == 3417157092, "Known independent Jenkins vectors.");
         Assert.Equal(0xC8E8C282u, Jenkins.Hash("DiffuseTex"));
-        Assert.Equal(Jenkins.Hash("levels/rdr3"), Jenkins.Hash("LEVELS\\RDR3"));
+        Assert.Equal(Jenkins.Hash("levels/example"), Jenkins.Hash("LEVELS\\EXAMPLE"));
         Assert.Equal(0u, Jenkins.Hash(""));
         foreach (JsonElement item in reference.RootElement.GetProperty("hashes").EnumerateArray())
         {

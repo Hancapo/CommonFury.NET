@@ -139,9 +139,9 @@ public sealed class RbfTests
     }
 
     [Fact]
-    public void ReadsAndRewritesRdr2FixturesByteForByte()
+    public void ReadsAndRewritesSyntheticFixturesByteForByte()
     {
-        // Synthetic RDR2-style RBF files.
+        // Synthetic RBF files.
         byte[] tree = Fixture("tree.ymt");
         RbfDocument document = RbfDocument.Read(tree);
         Assert.Equal("test", Assert.IsType<RbfStringValue>(Assert.Single(document.Root.Attributes)).Value);

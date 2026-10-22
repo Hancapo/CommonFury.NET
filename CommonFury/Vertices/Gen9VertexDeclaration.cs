@@ -14,7 +14,7 @@ public readonly record struct Gen9VertexSlot(VertexSemantic Semantic, uint Offse
         VertexElementFormats.TryFromDxgi(Format, rgb10A2Range, out format);
 }
 
-/// <summary>The 0x140-byte gen9 vertex declaration shared by GTA V Enhanced (interleaved) and RDR2 (planar).
+/// <summary>The 0x140-byte gen9 vertex declaration, for interleaved or planar vertex buffers.
 /// Layout: 52 UInt32 slot offsets at 0, 52 slot strides at 208, 52 DXGI formats at 260 and a packed UInt64 at 312
 /// holding the vertex stride in bits 2–9 and the vertex count in bits 10–31. Other packed bits are preserved.</summary>
 /// <remarks>A slot is used when its format byte is nonzero. Offsets and strides of unused slots are not modeled and are written as zero.

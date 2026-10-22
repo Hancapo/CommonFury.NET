@@ -8,7 +8,7 @@ using Xunit;
 
 namespace CommonFury.Tests;
 
-// An independently built GTA V PSO with every scalar type.
+// An independently built 12-bit PSO with every scalar type.
 public sealed class PsoTests : IDisposable
 {
     private static readonly string Directory = Path.Combine(AppContext.BaseDirectory, "ReferenceData", "pso");

@@ -3,7 +3,7 @@ using Xunit;
 
 namespace CommonFury.Tests;
 
-// Stored values must match both games' binary data; these pin them so a rename cannot silently renumber.
+// Stored values are binary data; these pin them so a rename cannot silently renumber.
 public sealed class AssetEnumTests
 {
     [Fact]
@@ -13,7 +13,7 @@ public sealed class AssetEnumTests
         Assert.Equal(0x700u, (uint)BoneChannelFlags.Scale);
         Assert.Equal(0x88u, (uint)(BoneChannelFlags.LimitRotation | BoneChannelFlags.LimitTranslation));
         Assert.Equal(0x7FFu, (uint)BoneChannelFlags.SharedMask);
-        // Game-specific high bits survive a round trip through the shared type.
+        // Unnamed high bits survive a round trip.
         var raw = (BoneChannelFlags)0x8000_2007;
         Assert.Equal(0x8000_2007u, (uint)raw);
         Assert.Equal(BoneChannelFlags.Rotation, raw & BoneChannelFlags.SharedMask);

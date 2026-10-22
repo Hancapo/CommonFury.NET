@@ -1,6 +1,6 @@
 namespace CommonFury.Dlc;
 
-// Only constants that every supported game defines with the same meaning live here. Each game adds its own through static
+// Only constants with the same meaning everywhere live here. Consuming libraries add their own through static
 // extension members, e.g. `extension(DlcDataFileType) { public static DlcDataFileType Streaming => new("STREAMING_FILE"); }`,
 // so callers keep writing DlcDataFileType.Streaming.
 
@@ -38,7 +38,7 @@ public readonly record struct DlcDataFileType(string Value)
     public static DlcDataFileType PermanentItyp => new("PERMANENT_ITYP_FILE");
 }
 
-/// <summary>content.xml contents-category token (CONTENTS_*); games provide the constants.</summary>
+/// <summary>content.xml contents-category token (CONTENTS_*); consuming libraries provide the constants.</summary>
 public readonly record struct DlcDataFileContents(string Value)
 {
     /// <inheritdoc cref="DlcPackType.ToString"/>

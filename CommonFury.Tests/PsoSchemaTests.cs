@@ -4,7 +4,7 @@ using Xunit;
 
 namespace CommonFury.Tests;
 
-// Wide RDR2 enum records, compact records, aliases and definition bounds.
+// Wide enum records, compact records, aliases and definition bounds.
 // The fixture places its data block after the 16-byte PSIN prefix, which the shared reader requires.
 public sealed class PsoSchemaTests
 {

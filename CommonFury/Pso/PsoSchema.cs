@@ -38,7 +38,7 @@ public sealed class PsoStruct : PsoSchemaType
 public sealed class PsoEnum : PsoSchemaType
 {
     public byte ReservedByte { get; }
-    /// <summary>True for 16-byte hash/reserved/Int64 records (RDR2); false for 8-byte hash/Int32 records (GTA V).</summary>
+    /// <summary>True for 16-byte hash/reserved/Int64 records; false for 8-byte hash/Int32 records.</summary>
     public bool IsWide { get; }
     /// <summary>Members in source order, including aliases.</summary>
     public IReadOnlyList<PsoEnumEntry> Entries { get; }
@@ -86,7 +86,7 @@ public sealed class PsoSchema
 
     /// <summary>Decodes a big-endian PSCH section. Enum records are wide when the definition is exactly 4 + 16 × count bytes
     /// long, otherwise compact. <paramref name="allowAliasedDefinitions"/> accepts distinct type hashes that share one
-    /// definition offset (RDR2); each then receives its own copy of the definition.</summary>
+    /// definition offset; each then receives its own copy of the definition.</summary>
     public static PsoSchema Read(ReadOnlySpan<byte> data, bool allowAliasedDefinitions = false)
     {
         var reader = new BinarySpanReader(data, ByteOrder.Big);
