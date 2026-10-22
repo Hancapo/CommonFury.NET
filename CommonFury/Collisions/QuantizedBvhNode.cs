@@ -61,8 +61,7 @@ public readonly record struct BvhQuantization(Vector3 Center, Vector3 Quantum, V
     /// <summary>Spreads the box size over 65534 steps per axis, using 1/32767 for flat axes, centered on the box.</summary>
     public static BvhQuantization FromSize(Aabb3 bounds)
     {
-        Vector3 size = bounds.Size;
-        Vector3 quantum = new(size.X == 0 ? 1f / 32767 : size.X / 65534, size.Y == 0 ? 1f / 32767 : size.Y / 65534, size.Z == 0 ? 1f / 32767 : size.Z / 65534);
+        Vector3 quantum = BoundsQuantization.Step(bounds);
         return new(bounds.Center, quantum, Vector3.One / quantum);
     }
 
@@ -92,8 +91,10 @@ public readonly record struct BvhQuantization(Vector3 Center, Vector3 Quantum, V
             case BvhQuantizationRounding.InverseClamped:
                 minimum = (bounds.Minimum - Center) * QuantumInverse;
                 maximum = (bounds.Maximum - Center) * QuantumInverse;
-                return (new(Clamped(minimum.X, false), Clamped(minimum.Y, false), Clamped(minimum.Z, false)),
-                    new(Clamped(maximum.X, true), Clamped(maximum.Y, true), Clamped(maximum.Z, true)));
+                return (new(BoundsQuantization.BoundCoordinate(minimum.X, false), BoundsQuantization.BoundCoordinate(minimum.Y, false),
+                        BoundsQuantization.BoundCoordinate(minimum.Z, false)),
+                    new(BoundsQuantization.BoundCoordinate(maximum.X, true), BoundsQuantization.BoundCoordinate(maximum.Y, true),
+                        BoundsQuantization.BoundCoordinate(maximum.Z, true)));
             case BvhQuantizationRounding.DivideChecked:
                 minimum = (bounds.Minimum - Center) / Quantum;
                 maximum = (bounds.Maximum - Center) / Quantum;
@@ -109,14 +110,6 @@ public readonly record struct BvhQuantization(Vector3 Center, Vector3 Quantum, V
     {
         var (minimum, maximum) = Quantize(node.Bounds, rounding);
         return new(minimum, maximum, node.ItemId, node.ItemCount);
-    }
-
-    private static short Clamped(float value, bool maximum)
-    {
-        if (!float.IsFinite(value))
-            throw new ArgumentOutOfRangeException(nameof(value));
-        float clamped = Math.Clamp(value, short.MinValue, short.MaxValue);
-        return (short)(maximum ? MathF.Ceiling(clamped) : MathF.Floor(clamped));
     }
 
     private static short Checked(float value, bool maximum)
