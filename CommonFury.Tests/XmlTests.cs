@@ -19,6 +19,15 @@ public sealed class XmlTests
     }
 
     [Fact]
+    public void DocumentCodecResolvesPredeclaredPrefixes()
+    {
+        byte[] data = "<x><xi:include href=\"a.xml\"/></x>"u8.ToArray();
+        Assert.Throws<InvalidDataException>(() => XmlDocumentCodec.Read(data));
+        XDocument document = XmlDocumentCodec.Read(data, predeclaredNamespaces: new Dictionary<string, string> { ["xi"] = "urn:include" });
+        Assert.Equal(XName.Get("include", "urn:include"), ((XElement)document.Root!.FirstNode!).Name);
+    }
+
+    [Fact]
     public void DocumentCodecWritesUtf8WithoutBomAndLfLines()
     {
         byte[] bytes = XmlDocumentCodec.Write(new XDocument(new XElement("root", new XElement("a", "é"))));
