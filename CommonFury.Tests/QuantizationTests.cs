@@ -98,6 +98,23 @@ public sealed class QuantizationTests
     }
 
     [Fact]
+    public void UNormEncodingRoundsHalfToEvenAndRejectsOutOfRange()
+    {
+        Assert.Equal(0u, PackedVectors.EncodeUNorm(0.5f, 1));
+        Assert.Equal(2u, PackedVectors.EncodeUNorm(0.5f, 3));
+        Assert.Equal(2u, PackedVectors.EncodeUNorm(0.5f, 5));
+        Assert.Equal(128u, PackedVectors.EncodeUNorm(0.5f, 255));
+        Assert.Equal(32768u, PackedVectors.EncodeUNorm(0.5f, 65535));
+        Assert.Equal(0u, PackedVectors.EncodeUNorm(-0f, 65535));
+        Assert.Equal(65535u, PackedVectors.EncodeUNorm(1, 65535));
+        Assert.Equal((1u << 24) - 1, PackedVectors.EncodeUNorm(1, (1u << 24) - 1));
+        foreach (float value in new[] { -float.Epsilon, MathF.BitIncrement(1), float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+            Assert.Throws<ArgumentOutOfRangeException>(() => PackedVectors.EncodeUNorm(value, 255));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PackedVectors.EncodeUNorm(0.5f, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PackedVectors.EncodeUNorm(0.5f, 1u << 24));
+    }
+
+    [Fact]
     public void BoundsQuantizationRoundsOutwardAndMatchesBvhSteps()
     {
         Aabb3 rounded = BoundsQuantization.RoundOutward(new(new(0.3f, -0.3f, 0), new(1.2f, 0.2f, 0)), 2);
@@ -137,6 +154,19 @@ public sealed class QuantizationTests
         Assert.Equal(1, output[0].X, 5);
         batch.Skin([Matrix4x4.CreateTranslation(2, 0, 0)], output);
         Assert.Equal(2, output[0].X, 5);
+    }
+
+    [Fact]
+    public void WeightSumAtMinimumHasNoInfluence()
+    {
+        const float minimum = SkinningMath.MinimumWeightSum;
+        Assert.True(SkinningMath.WeightSum([minimum]) <= minimum);
+        Assert.True(SkinningMath.WeightSum([minimum, minimum]) > minimum);
+        Assert.Equal(0, SkinningMath.WeightSum([1, -1]));
+        Assert.True(double.IsNaN(SkinningMath.WeightSum([1, float.NaN])));
+        Matrix4x4[] transforms = [Matrix4x4.CreateTranslation(1, 0, 0)];
+        Assert.Equal(Matrix4x4.Identity, SkinningMath.Blend([minimum], [0], transforms));
+        Assert.Equal(transforms[0], SkinningMath.Blend([2 * minimum], [0], transforms));
     }
 
     [Fact]

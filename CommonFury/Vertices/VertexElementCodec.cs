@@ -83,27 +83,27 @@ public static class VertexElementCodec
                 writer.WriteByte((byte)value.W);
                 break;
             case VertexElementFormat.UNorm8x4:
-                writer.WriteUInt32(Unsigned(value.X, 255) | (Unsigned(value.Y, 255) << 8) | (Unsigned(value.Z, 255) << 16) | (Unsigned(value.W, 255) << 24));
+                writer.WriteUInt32(PackedVectors.EncodeUNorm8(value));
                 break;
             case VertexElementFormat.SNorm8x4:
                 writer.WriteUInt32(Signed(value.X) | (Signed(value.Y) << 8) | (Signed(value.Z) << 16) | (Signed(value.W) << 24));
                 break;
             case VertexElementFormat.UNorm10x3A2:
-                writer.WriteUInt32(Unsigned(value.X, 1023) | (Unsigned(value.Y, 1023) << 10) | (Unsigned(value.Z, 1023) << 20) | (Unsigned(value.W, 3) << 30));
+                writer.WriteUInt32(PackedVectors.EncodeUNorm1010102(value));
                 break;
             case VertexElementFormat.BiasedUNorm10x3A2:
                 writer.WriteUInt32(Biased(value.X, 1023) | (Biased(value.Y, 1023) << 10) | (Biased(value.Z, 1023) << 20) | (Biased(value.W, 3) << 30));
                 break;
             case VertexElementFormat.UNorm16:
-                writer.WriteUInt16((ushort)Unsigned(value.X, 65535));
+                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.X, 65535));
                 break;
             case VertexElementFormat.UNorm16x2:
-                writer.WriteUInt16((ushort)Unsigned(value.X, 65535));
-                writer.WriteUInt16((ushort)Unsigned(value.Y, 65535));
+                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.X, 65535));
+                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.Y, 65535));
                 break;
             case VertexElementFormat.UNorm8x2:
-                writer.WriteByte((byte)Unsigned(value.X, 255));
-                writer.WriteByte((byte)Unsigned(value.Y, 255));
+                writer.WriteByte((byte)PackedVectors.EncodeUNorm(value.X, 255));
+                writer.WriteByte((byte)PackedVectors.EncodeUNorm(value.Y, 255));
                 break;
             case VertexElementFormat.Int16x2:
                 writer.WriteInt16(Integer16(value.X));
@@ -127,13 +127,6 @@ public static class VertexElementCodec
     private static Vector4 DecodeBiased1010102(uint value) => new(
         (value & 1023) * (2f / 1023) - 1, (value >> 10 & 1023) * (2f / 1023) - 1,
         (value >> 20 & 1023) * (2f / 1023) - 1, (value >> 30) * (2f / 3) - 1);
-
-    private static uint Unsigned(float value, uint maximum)
-    {
-        if (!float.IsFinite(value) || value < 0 || value > 1)
-            throw new ArgumentOutOfRangeException(nameof(value));
-        return checked((uint)MathF.Round(value * maximum, MidpointRounding.ToEven));
-    }
 
     private static uint Signed(float value)
     {
