@@ -18,7 +18,7 @@ internal static partial class AnimationSequenceCodec
         int initialBits = (int)BitField32.Extract(widths, 8, 8);
         int divisor = (int)BitField32.Extract(widths, 16, 8);
         BinaryLayout.Require(addressBits <= 32 && initialBits <= 32 && divisor <= 31,
-            "Linear animation bit widths exceed their signed runtime representation.");
+            "Linear animation bit widths exceed their signed representation.");
         byte[] packed = constants.ReadBytes((words - 4) * 4).ToArray();
         var reader = new BinaryBitReader(packed);
         int segments = (frames + segmentSize - 1) / segmentSize;
@@ -77,7 +77,7 @@ internal static partial class AnimationSequenceCodec
             if (reader.ReadUInt32(1) != 0)
                 break;
             quotient++;
-            BinaryLayout.Require(quotient < 32, "Linear Rice quotient exceeds the runtime's bounded 32-bit unary code.");
+            BinaryLayout.Require(quotient < 32, "Linear Rice quotient exceeds the bounded 32-bit unary code.");
         }
         long magnitude = ((long)quotient << divisor) | remainder;
         BinaryLayout.Require(magnitude <= int.MaxValue, "Linear Rice magnitude exceeds signed delta storage.");
