@@ -110,6 +110,25 @@ public sealed class PsoTests : IDisposable
     }
 
     [Fact]
+    public void BlockPaddingFillsAlignmentGaps()
+    {
+        var schema = new PsoSchema([new PsoStruct(0x1234, 4, [new(0x99, PsoDataType.UInt32, 0, 0, 0)])]);
+        var root = new PsoBlockBuilder(0x1234);
+        root.Append([1, 2, 3, 4]);
+        var tail = new PsoBlockBuilder(0x1234);
+        tail.Append([5, 6, 7, 8]);
+        var builder = new PsoBuilder(schema) { Root = root, BlockPadding = 0x70 };
+        builder.Blocks.AddRange([root, tail]);
+        byte[] bytes = builder.Build().Write();
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, bytes[16..20]);
+        Assert.All(bytes[20..32], value => Assert.Equal(0x70, value));
+        Assert.Equal(new byte[] { 5, 6, 7, 8 }, bytes[32..36]);
+        PsoFile file = PsoFile.Read(bytes);
+        Assert.True(file.ValidateChecksum().IsValid, "Padded checksum mismatch.");
+        Assert.Equal(0x1234u, file.ReadRoot().Root.TypeHash);
+    }
+
+    [Fact]
     public void UnknownSchemas()
     {
         byte[] raw = new byte[24];
