@@ -45,7 +45,8 @@ public sealed class SkinningBatch
 
     /// <summary>Writes one position and, when present, one normal per vertex without allocating. Outputs must not overlap
     /// each other or <paramref name="matrices"/>; invalid input is rejected before anything is written. Vertices whose
-    /// weights sum to at most 1e-8 keep their source values. Concurrent calls need disjoint outputs.</summary>
+    /// weights sum to at most <see cref="SkinningMath.MinimumWeightSum"/> keep their source values. Concurrent calls need
+    /// disjoint outputs.</summary>
     public void Skin(ReadOnlySpan<Matrix4x4> matrices, Span<Vector3> outputPositions, Span<Vector3> outputNormals = default)
     {
         if (outputPositions.Length != VertexCount || outputNormals.Length != normals.Length)

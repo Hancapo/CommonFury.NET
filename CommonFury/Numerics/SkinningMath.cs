@@ -16,9 +16,13 @@ public enum RadialFalloff
 /// <summary>Bone influences and weighted transforms for CPU skinning.</summary>
 public static class SkinningMath
 {
-    internal const float MinimumWeightSum = 1e-8f;
+    /// <summary>A vertex whose <see cref="WeightSum"/> is at or below this value has no bone influence: blending returns
+    /// identity and batch skinning keeps the source vertex.</summary>
+    public const float MinimumWeightSum = 1e-8f;
 
-    internal static double WeightSum(ReadOnlySpan<float> weights)
+    /// <summary>Sum of the weights as given, accumulated in double precision. Nothing is validated: negative weights
+    /// subtract and non-finite weights propagate, so a NaN sum fails a <c>&lt;= MinimumWeightSum</c> check.</summary>
+    public static double WeightSum(ReadOnlySpan<float> weights)
     {
         double sum = 0;
         foreach (float weight in weights)
@@ -26,8 +30,8 @@ public static class SkinningMath
         return sum;
     }
 
-    /// <summary>Weighted sum of the indexed transforms. A total weight at or below 1e-8 returns identity; without
-    /// <paramref name="normalizeWeights"/> the raw weights are used as given.</summary>
+    /// <summary>Weighted sum of the indexed transforms. A total weight at or below <see cref="MinimumWeightSum"/> returns
+    /// identity; without <paramref name="normalizeWeights"/> the raw weights are used as given.</summary>
     public static Matrix4x4 Blend(ReadOnlySpan<float> weights, ReadOnlySpan<int> indices, ReadOnlySpan<Matrix4x4> transforms, bool normalizeWeights = true)
     {
         if (weights.Length == 0 || weights.Length != indices.Length)
