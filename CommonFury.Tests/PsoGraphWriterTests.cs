@@ -141,6 +141,33 @@ public sealed class PsoGraphWriterTests
             Assert.True(Assert.IsType<PsoText>(field.Value).Bytes.SequenceEqual("BSS_1_MCS_2.WAV"u8)));
     }
 
+    [Fact]
+    public void IncompleteNodeCanBeReferencedBeforeItsSingleCompletion()
+    {
+        PsoEntry self = new(0xA1234569, PsoDataType.Structure, 3, 0, RootHash);
+        PsoEntry values = new(ArrayHash, PsoDataType.Array, 0, 8, 0);
+        PsoEntry name = new(0xA1234570, PsoDataType.String, 1, 24, 0);
+        var schema = new PsoSchema([new PsoStruct(RootHash, 32, [self, new(PsoEntry.ArrayInfoHash, PsoDataType.UInt32, 0, 0, 0), values, name])]);
+
+        PsoNode root = PsoNode.CreateIncomplete(RootHash);
+        Assert.False(root.IsComplete);
+        Assert.Throws<InvalidDataException>(() => PsoFile.FromGraph(schema, root));
+        root.Complete([
+            new(self, new PsoNodeValue(root)),
+            new(values, PsoArray.Create([new PsoInteger(7), new PsoInteger(8)])),
+            new(name, new PsoText("root"u8))
+        ]);
+        Assert.True(root.IsComplete);
+        Assert.Throws<InvalidOperationException>(() => root.Complete([]));
+
+        PsoNode copy = PsoFile.FromGraph(schema, root).ReadRoot().Root;
+        Assert.Same(copy, Assert.IsType<PsoNodeValue>(copy.Fields[0].Value).Node);
+        Assert.Equal(root.Fields.Skip(1), copy.Fields.Skip(1));
+        Assert.Throws<InvalidOperationException>(() => copy.Complete([]));
+        Assert.Throws<ArgumentException>(() => new PsoText("a\0b"u8));
+        Assert.Throws<ArgumentException>(() => PsoArray.Create([null!]));
+    }
+
     private static PsoFile File(PsoEntry[] entries, byte[] data, params (uint Type, byte[] Data)[] blocks)
     {
         var schema = new PsoSchema([new PsoStruct(RootHash, data.Length, entries)]);

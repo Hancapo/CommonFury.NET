@@ -38,7 +38,14 @@ public sealed record PsoText : PsoValue
     private readonly byte[] bytes;
     /// <summary>Text bytes without the terminator.</summary>
     public ReadOnlySpan<byte> Bytes => this.bytes;
-    internal PsoText(ReadOnlySpan<byte> bytes) => this.bytes = bytes.ToArray();
+    /// <summary>Copies the text bytes, which exclude the terminator.</summary>
+    /// <exception cref="ArgumentException"><paramref name="bytes"/> contains a NUL.</exception>
+    public PsoText(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Contains((byte)0))
+            throw new ArgumentException("PSO text cannot contain a NUL.", nameof(bytes));
+        this.bytes = bytes.ToArray();
+    }
     public string Decode(Encoding encoding) => encoding.GetString(this.bytes);
     public bool Equals(PsoText? other) => other is not null && Bytes.SequenceEqual(other.Bytes);
     public override int GetHashCode()
@@ -49,11 +56,21 @@ public sealed record PsoText : PsoValue
     }
 }
 
-/// <summary>Read-only array of decoded values in source order, with element-wise equality.</summary>
+/// <summary>Read-only array of values in source order, with element-wise equality.</summary>
 public sealed record PsoArray : PsoValue
 {
     public IReadOnlyList<PsoValue> Values { get; }
     internal PsoArray(PsoValue[] values) => Values = Array.AsReadOnly(values);
+    /// <summary>Copies the value list but shares the values and nodes it references.</summary>
+    /// <exception cref="ArgumentException">A value is null.</exception>
+    public static PsoArray Create(IEnumerable<PsoValue> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        PsoValue[] items = values.ToArray();
+        if (items.Any(item => item is null))
+            throw new ArgumentException("PSO array values cannot be null.", nameof(values));
+        return new(items);
+    }
     public bool Equals(PsoArray? other) => other is not null && Values.SequenceEqual(other.Values);
     public override int GetHashCode()
     {
@@ -96,24 +113,42 @@ public sealed record PsoMap : PsoValue
 /// <summary>Schema field and its decoded value.</summary>
 public sealed record PsoField(PsoEntry Entry, PsoValue Value);
 
-/// <summary>Read-only decoded node, identified by source pointer and type hash. Pointer cycles retain node identity.</summary>
+/// <summary>Decoded or authored node, identified by source pointer and type hash. Pointer cycles retain node identity. Fields
+/// are set once and then read-only.</summary>
 public sealed class PsoNode
 {
     public uint TypeHash { get; }
     /// <summary>Source location; default for authored nodes.</summary>
     public PsoPointer Pointer { get; }
-    /// <summary>Decoded fields in schema order, excluding anonymous descriptors.</summary>
+    /// <summary>Fields in schema order, excluding anonymous descriptors; empty until the node is complete.</summary>
     public IReadOnlyList<PsoField> Fields { get; private set; } = Array.Empty<PsoField>();
-    internal bool Complete { get; private set; }
+    /// <summary>False only for a node from <see cref="CreateIncomplete"/> before <see cref="Complete"/>;
+    /// <see cref="PsoFile.FromGraph"/> rejects incomplete nodes.</summary>
+    public bool IsComplete { get; private set; }
     internal PsoNode(uint typeHash, PsoPointer pointer) { TypeHash = typeHash; Pointer = pointer; }
-    internal void CompleteWith(PsoField[] fields) { Fields = Array.AsReadOnly(fields); Complete = true; }
     /// <summary>Creates an authored node; copies the field list but shares the values and nodes it references.</summary>
     public static PsoNode Create(uint typeHash, IEnumerable<PsoField> fields)
     {
-        ArgumentNullException.ThrowIfNull(fields);
-        var result = new PsoNode(typeHash, default);
-        result.CompleteWith(fields.ToArray());
+        PsoNode result = CreateIncomplete(typeHash);
+        result.Complete(fields);
         return result;
+    }
+    /// <summary>Creates an authored node without fields, so values can reference it before <see cref="Complete"/> supplies
+    /// them, as cycles and nodes built out of order require.</summary>
+    public static PsoNode CreateIncomplete(uint typeHash) => new(typeHash, default);
+    /// <summary>Sets the fields once; copies the field list but shares the values and nodes it references.</summary>
+    /// <exception cref="InvalidOperationException">The node is already complete, as every decoded node is.</exception>
+    public void Complete(IEnumerable<PsoField> fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        CompleteWith(fields.ToArray());
+    }
+    internal void CompleteWith(PsoField[] fields)
+    {
+        if (IsComplete)
+            throw new InvalidOperationException("The PSO node is already complete.");
+        Fields = Array.AsReadOnly(fields);
+        IsComplete = true;
     }
 }
 

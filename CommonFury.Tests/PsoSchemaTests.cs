@@ -180,6 +180,36 @@ public sealed class PsoSchemaTests
     }
 
     [Fact]
+    public void ArrayLayoutHelpersReadFixedInlineAndPointerArrays()
+    {
+        var schema = new PsoSchema([new PsoStruct(0x1234, 6, [])]);
+        var element = new PsoEntry(PsoEntry.ArrayInfoHash, PsoDataType.UInt16, 0, 0, 0);
+        Assert.Equal(2, schema.ElementStride(element));
+        Assert.Equal(6, schema.ElementStride(new(PsoEntry.ArrayInfoHash, PsoDataType.Structure, 0, 0, 0x1234)));
+        Assert.Equal(0, schema.ElementStride(new(PsoEntry.ArrayInfoHash, PsoDataType.Structure, 0, 0, 0x5678)));
+
+        // At offset 4: three 2-byte slots, two alignment bytes, then the live count.
+        byte[] structure = [0xFF, 0xFF, 0xFF, 0xFF, 0, 1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 2];
+        var fixedArray = new PsoEntry(0x55555555, PsoDataType.Array, 1, 4, 3u << 16);
+        Assert.True(fixedArray.IsInlineArray);
+        Assert.Equal(2, schema.ReadArrayCount(fixedArray, element, structure));
+        var inlineArray = fixedArray with { Subtype = 2 };
+        Assert.True(inlineArray.IsInlineArray);
+        Assert.Equal(3, schema.ReadArrayCount(inlineArray, element, structure));
+
+        // atArray: pointer, padding, then the count.
+        byte[] header = [0, 0, 0x10, 0x02, 0, 0, 0, 0, 0, 5, 0, 5, 0, 0, 0, 0];
+        var pointerArray = new PsoEntry(0x55555555, PsoDataType.Array, 0, 0, 0);
+        Assert.False(pointerArray.IsInlineArray);
+        Assert.Equal(5, schema.ReadArrayCount(pointerArray, element, header));
+
+        Assert.False(element.IsInlineArray);
+        Assert.Throws<ArgumentException>(() => schema.ReadArrayCount(element, element, structure));
+        Assert.Throws<InvalidDataException>(() => schema.ReadArrayCount(fixedArray, element, structure[..15]));
+        Assert.Throws<InvalidDataException>(() => schema.ReadArrayCount(fixedArray with { DataOffset = 17 }, element, structure));
+    }
+
+    [Fact]
     public void TruncatedEnumIsRejectedEvenWithACompleteSectionHeader()
     {
         byte[] bytes = Fixture()[..^1];

@@ -219,6 +219,80 @@ public sealed class PsoSchema
         return Array.AsReadOnly(enumeration.Entries.Where(entry => entry.Value == value || entry.Value == pattern).ToArray());
     }
 
+    /// <summary>Returns the bytes one value of <paramref name="entry"/> occupies, as a field or as an array element described
+    /// by an ARRAYINFO entry; structure pointers take 8. Returns zero when the size is not fixed by the entry and this schema:
+    /// arrays, maps, unknown subtypes, and inline structures this schema does not define.</summary>
+    public int ElementStride(PsoEntry entry) => entry.DataType switch
+    {
+        PsoDataType.Structure when PsoLayout.IsPointerElement(entry) => 8,
+        PsoDataType.Structure when entry.Subtype == 0 => ByHash.GetValueOrDefault(entry.ReferenceKey) is PsoStruct s ? s.Length : 0,
+        PsoDataType.Bool or PsoDataType.Byte or PsoDataType.SByte => 1,
+        PsoDataType.Int16 or PsoDataType.UInt16 or PsoDataType.Half => 2,
+        PsoDataType.Int32 or PsoDataType.UInt32 or PsoDataType.Enum or PsoDataType.Flags or PsoDataType.Float => 4,
+        PsoDataType.Int64 or PsoDataType.Float2 => 8,
+        // Wire type 9 (Vector3) and wire type 20 (Vec3V) both occupy 16 bytes.
+        PsoDataType.Float3 or PsoDataType.Float4 or PsoDataType.Float3Aligned or PsoDataType.Float4Aligned => 16,
+        PsoDataType.String when entry.Subtype is 7 or 8 => 4,
+        PsoDataType.String when entry.Subtype is 1 or 2 => 8,
+        PsoDataType.String when entry.Subtype == 3 => 16,
+        PsoDataType.String when entry.Subtype == 0 => (int)(entry.ReferenceKey >> 16),
+        _ => 0
+    };
+
+    /// <summary>Reads the element count of an array field from its owning structure's bytes, without checking the element
+    /// storage. Fixed arrays (subtype 1) return their stored live count, other inline arrays their capacity, and pointer arrays
+    /// the count in their header or counter member; a null fixed-length pointer array (subtype 3) counts zero.</summary>
+    /// <param name="array">Array field of the structure.</param>
+    /// <param name="element">ARRAYINFO entry that precedes <paramref name="array"/>.</param>
+    /// <param name="structure">The owning structure's bytes, starting at its first byte.</param>
+    /// <exception cref="ArgumentException"><paramref name="array"/> is not an array field.</exception>
+    /// <exception cref="NotSupportedException">The array subtype is unknown, or a fixed array's element size is not fixed.</exception>
+    /// <exception cref="InvalidDataException">The count lies outside <paramref name="structure"/>, exceeds the capacity of a
+    /// fixed array, or exceeds <see cref="int.MaxValue"/>.</exception>
+    public int ReadArrayCount(PsoEntry array, PsoEntry element, ReadOnlySpan<byte> structure)
+    {
+        if (array.DataType != PsoDataType.Array)
+            throw new ArgumentException("Expected a PSO array field.", nameof(array));
+        BinaryLayout.Require(array.DataOffset <= structure.Length, "PSO array field starts outside its structure.");
+        ReadOnlySpan<byte> field = structure[array.DataOffset..];
+        // The schema's count word is a capacity for fixed arrays, but a byte offset to the count member for subtypes 6–8.
+        int capacity = (int)(array.ReferenceKey >> 16);
+        switch (array.Subtype)
+        {
+            case 0:
+                return PsoArrayHeader.Read(field).Count;
+            case 1:
+                int stride = ElementStride(element);
+                if (stride <= 0 && capacity != 0)
+                    throw new NotSupportedException("PSO array element size is unknown.");
+                int count = new BinarySpanReader(BinaryLayout.Slice(field, PsoLayout.FixedArrayCountOffset(array, stride), 4), ByteOrder.Big).ReadInt32();
+                BinaryLayout.Require(count >= 0 && count <= capacity, "PSO fixed array count exceeds its capacity.");
+                return count;
+            case 2:
+            case 4:
+                return capacity;
+            case 3:
+                return new BinarySpanReader(field, ByteOrder.Big).ReadUInt32() == 0 ? 0 : capacity;
+            case 5:
+                return ReadCount(BinaryLayout.Slice(field, 8, 4), 4);
+            case 6:
+            case 7:
+            case 8:
+                int width = PsoLayout.ExternalCounterWidth(array);
+                return ReadCount(BinaryLayout.Slice(structure, capacity, width), width);
+            default:
+                throw new NotSupportedException($"Unsupported PSO array subtype {array.Subtype}.");
+        }
+    }
+
+    private static int ReadCount(ReadOnlySpan<byte> data, int width)
+    {
+        var reader = new BinarySpanReader(data, ByteOrder.Big);
+        uint count = width switch { 1 => reader.ReadByte(), 2 => reader.ReadUInt16(), _ => reader.ReadUInt32() };
+        BinaryLayout.Require(count <= int.MaxValue, "PSO array count exceeds the supported range.");
+        return (int)count;
+    }
+
     private static int EncodedSize(PsoSchemaType type) => type switch
     {
         PsoStruct s => checked(12 + s.Entries.Count * 12),

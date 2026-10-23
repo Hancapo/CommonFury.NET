@@ -28,7 +28,9 @@ public sealed class PsoFile
     public ushort PmapReserved { get; }
     public PsoPointerLayout PointerLayout { get; }
     public PsoSchema Schema { get; }
-    internal PsoSection Psin { get; }
+    /// <summary>The PSIN section: an 8-byte header, an 8-byte prefix word, then the blocks. <see cref="PsoBlock.Offset"/> is
+    /// relative to its start.</summary>
+    public PsoSection Psin { get; }
 
     private PsoFile(List<PsoSection> sections, PsoFileOptions options)
     {
@@ -157,17 +159,23 @@ public sealed class PsoFile
         return new ValidationReport(diagnostics);
     }
 
-    internal PsoBlock Block(int id)
+    /// <summary>Returns the PMAP entry of a one-based block ID, such as <see cref="RootBlockId"/> or a pointer's block.</summary>
+    /// <exception cref="InvalidDataException">No block has this ID; zero, the null block, never exists.</exception>
+    public PsoBlock Block(int id)
     {
         if (id < 1 || id > Blocks.Count)
             throw new InvalidDataException($"Unknown PSO block {id}.");
         return Blocks[id - 1];
     }
 
-    internal ReadOnlySpan<byte> Slice(PsoPointer pointer, int length)
+    /// <summary>Borrows the bytes at a block-relative pointer as a view of this file's immutable storage; nothing is copied.
+    /// The offset is used as given: wrapped 20-bit page offsets are not reconstructed.</summary>
+    /// <exception cref="InvalidDataException">The block does not exist (including a null pointer), <paramref name="length"/>
+    /// is negative, or the range extends past the end of the block.</exception>
+    public ReadOnlySpan<byte> Slice(PsoPointer pointer, int length)
     {
         PsoBlock block = Block(pointer.BlockId);
-        BinaryLayout.Require(pointer.Offset <= block.Length - length && length >= 0, "PSO pointer exceeds its declared block.");
+        BinaryLayout.Require(length >= 0 && pointer.Offset <= block.Length - length, "PSO pointer exceeds its declared block.");
         return BinaryLayout.Slice(Psin.Data, checked(block.Offset + pointer.Offset), length);
     }
 }
