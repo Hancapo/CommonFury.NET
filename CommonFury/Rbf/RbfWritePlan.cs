@@ -69,9 +69,9 @@ internal sealed class RbfWritePlan
         }
         var value = (RbfValue)node;
         if (attribute && value is RbfVector3Value)
-            AddDiagnostic(RbfDiagnosticCodes.AttributeType, "The identified RAGE reader does not support vector records as attributes.", path);
+            AddDiagnostic(RbfDiagnosticCodes.AttributeType, "Vector records are not supported as attributes.", path);
         if (!attribute && value is RbfStringValue)
-            AddDiagnostic(RbfDiagnosticCodes.StringElement, "String leaf records are readable, but RAGE export requires a string attribute or an explicit data container.", path);
+            AddDiagnostic(RbfDiagnosticCodes.StringElement, "String leaf records are readable, but export requires a string attribute or an explicit data container.", path);
         if (value is RbfStringValue text)
             RbfEncoding.ValidateAscii(text.Value, issues, RbfDiagnosticCodes.Text, path + ".Value");
         int payloadSize = value switch
@@ -109,7 +109,7 @@ internal sealed class RbfWritePlan
             Visit(child, $"{path}.Children[{i}]", depth + 1, attribute: false);
         }
         if (hasData && hasElements)
-            AddDiagnostic(RbfDiagnosticCodes.ContentMixed, "The identified RAGE reader requires data content and child elements to be in separate containers.", path + ".Children");
+            AddDiagnostic(RbfDiagnosticCodes.ContentMixed, "Data content and child elements must be in separate containers.", path + ".Children");
         if (!this.stopped && Reserve(2, path))
             operations.Add(new(null));
     }

@@ -267,7 +267,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         switch (entry.Subtype)
         {
             case 0:
-                Require(count <= ushort.MaxValue, "PSO atArray count exceeds 16 bits.");
+                Require(count <= ushort.MaxValue, "PSO array count exceeds 16 bits.");
                 break;
             case 1:
                 Require(count <= capacity, "PSO fixed array exceeds its capacity.");
@@ -436,7 +436,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         if (entry.Subtype == 3 && text.Bytes.IsEmpty)
             return;
         int length = text.Bytes.Length;
-        Require(entry.Subtype != 3 || length < ushort.MaxValue, "PSO atString length and terminator exceed 16 bits.");
+        Require(entry.Subtype != 3 || length < ushort.MaxValue, "PSO string length and terminator exceed 16 bits.");
         Pointer(location, Text(text));
         if (entry.Subtype == 3)
         {

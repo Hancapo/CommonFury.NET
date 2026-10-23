@@ -101,7 +101,7 @@ internal static partial class AnimationSequenceCodec
                     result.AddDiagnostic(AnimationDiagnosticCodes.SequenceDescriptorPadding, "Channel descriptor padding differs from the track-count sentinel and is retained in the source encoding.", "SourceEncoding");
         }
         BinaryLayout.Require(actualIndirectWords == indirectWords && actualQuantizeBits == quantizeBits,
-            "Animation channel group sizes disagree with the runtime sequence header.");
+            "Animation channel group sizes disagree with the sequence header.");
         if (constants.ReadBytes(constants.Remaining).ContainsAnyExcept((byte)0))
             result.AddDiagnostic(AnimationDiagnosticCodes.SequenceConstantPadding, "Nonzero bytes follow the decoded constant channels; rewriting an edited sequence would discard them.", "SourceEncoding");
         for (int frame = 0; frame < frames; frame++)
