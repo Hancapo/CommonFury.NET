@@ -11,8 +11,11 @@ public static class XmlDocumentCodec
     public const int DefaultMaximumCharacters = 64 * 1024 * 1024;
 
     /// <summary>Parses a copy of the input, preserving whitespace. DTDs are prohibited and nothing external is resolved.
-    /// Malformed XML or input over the budget throws <see cref="InvalidDataException"/>.</summary>
-    public static XDocument Read(ReadOnlySpan<byte> data, int maximumCharacters = DefaultMaximumCharacters)
+    /// Malformed XML or input over the budget throws <see cref="InvalidDataException"/>.
+    /// <paramref name="predeclaredNamespaces"/> maps prefixes to URIs for the whole document, for input that uses a prefix
+    /// without declaring it; declarations in the document override them.</summary>
+    public static XDocument Read(ReadOnlySpan<byte> data, int maximumCharacters = DefaultMaximumCharacters,
+        IReadOnlyDictionary<string, string>? predeclaredNamespaces = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCharacters);
         if (data.Length > maximumCharacters)
@@ -25,9 +28,17 @@ public static class XmlDocumentCodec
             MaxCharactersInDocument = maximumCharacters,
             MaxCharactersFromEntities = maximumCharacters
         };
+        XmlParserContext? context = null;
+        if (predeclaredNamespaces is not null)
+        {
+            var namespaces = new XmlNamespaceManager(new NameTable());
+            foreach (var (prefix, uri) in predeclaredNamespaces)
+                namespaces.AddNamespace(prefix, uri);
+            context = new XmlParserContext(null, namespaces, null, XmlSpace.None);
+        }
         try
         {
-            using XmlReader reader = XmlReader.Create(stream, settings);
+            using XmlReader reader = XmlReader.Create(stream, settings, context);
             return XDocument.Load(reader, LoadOptions.PreserveWhitespace);
         }
         catch (XmlException exception) { throw new InvalidDataException("Malformed or unsupported XML document.", exception); }
