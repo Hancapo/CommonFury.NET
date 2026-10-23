@@ -128,6 +128,9 @@ public readonly record struct PsoEntry(uint NameHash, PsoDataType DataType, byte
     public const uint ArrayInfoHash = 0x100;
     /// <summary>True for anonymous array-element and map key/item descriptors (name hashes 0x100–0xCFF).</summary>
     public bool IsAnonymous => NameHash is >= 256 and < 3328;
+    /// <summary>True for array fields whose elements are stored inside the owning structure at <see cref="DataOffset"/>
+    /// (subtypes 1, 2 and 4); other arrays store a pointer there.</summary>
+    public bool IsInlineArray => DataType == PsoDataType.Array && Subtype is 1 or 2 or 4;
 }
 /// <summary>Enum member. Wide (16-byte) records hold a 64-bit value and a reserved word; compact (8-byte) records hold a
 /// 32-bit value and no reserved word.</summary>

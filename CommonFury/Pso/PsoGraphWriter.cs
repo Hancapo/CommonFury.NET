@@ -81,7 +81,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         ArgumentNullException.ThrowIfNull(node);
         if (this.nodes.TryGetValue(node, out NodePlan? found))
             return found;
-        Require(node.Complete, "An incomplete PSO node cannot be written.");
+        Require(node.IsComplete, "An incomplete PSO node cannot be written.");
         if (Builder.Schema.ByHash.GetValueOrDefault(node.TypeHash) is not PsoStruct structure)
             throw new NotSupportedException($"No PSO structure schema for 0x{node.TypeHash:X8}.");
         var plan = new NodePlan(node, structure);
@@ -121,8 +121,8 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
             {
                 Require(element is not null, "A PSO array requires an ARRAYINFO descriptor.");
                 PsoArray array = Value<PsoArray>(value!, entry);
-                int stride = PsoLayout.ElementStride(Builder.Schema, element.Value);
-                Require(stride > 0 || array.Values.Count == 0 && (!PsoLayout.IsInlineArray(entry) || entry.ReferenceKey >> 16 == 0),
+                int stride = Builder.Schema.ElementStride(element.Value);
+                Require(stride > 0 || array.Values.Count == 0 && (!entry.IsInlineArray || entry.ReferenceKey >> 16 == 0),
                     "PSO array element size is unknown.");
                 storage = PsoLayout.ArrayStorageSize(entry, stride);
                 CheckArrayCount(plan, entry, array.Values.Count);
@@ -130,7 +130,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
             }
             else
             {
-                storage = PsoLayout.ElementStride(Builder.Schema, entry);
+                storage = Builder.Schema.ElementStride(entry);
                 bool emptyStructure = entry.DataType == PsoDataType.Structure && entry.Subtype == 0 &&
                     Builder.Schema.ByHash.GetValueOrDefault(entry.ReferenceKey) is PsoStruct { Length: 0 };
                 Require(storage > 0 || emptyStructure || entry.DataType == PsoDataType.String && entry.Subtype == 0 && Value<PsoText>(value!, entry).Bytes.IsEmpty,
@@ -146,7 +146,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
     private void DiscoverArray(NodePlan owner, PsoEntry entry, PsoEntry element, PsoArray array, int stride)
     {
         NodePlan? first = null;
-        bool inline = PsoLayout.IsInlineArray(entry);
+        bool inline = entry.IsInlineArray;
         for (int i = 0; i < array.Values.Count; i++)
         {
             PsoValue value = array.Values[i];
@@ -291,7 +291,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                 foreach (PsoField field in owner.Node.Fields)
                 {
                     if (field.Entry.DataOffset == capacity)
-                        Require(field.Value is PsoInteger integer && integer.Value == count && PsoLayout.ElementStride(Builder.Schema, field.Entry) == width,
+                        Require(field.Value is PsoInteger integer && integer.Value == count && Builder.Schema.ElementStride(field.Entry) == width,
                             "PSO array count disagrees with its modeled counter member.");
                 }
                 break;
@@ -303,9 +303,9 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
     private void WriteArray(Location owner, PsoEntry entry, PsoEntry element, PsoArray array)
     {
         int count = array.Values.Count;
-        int stride = PsoLayout.ElementStride(Builder.Schema, element);
+        int stride = Builder.Schema.ElementStride(element);
         Location field = owner.Add(entry.DataOffset);
-        bool inline = PsoLayout.IsInlineArray(entry);
+        bool inline = entry.IsInlineArray;
         Location contents = field;
         if (!inline && count != 0)
         {
@@ -359,7 +359,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         }
         if (entry.DataType == PsoDataType.String)
         { WriteString(entry, value, location); return; }
-        var writer = new BinarySpanWriter(location.Span(PsoLayout.ElementStride(Builder.Schema, entry)), ByteOrder.Big);
+        var writer = new BinarySpanWriter(location.Span(Builder.Schema.ElementStride(entry)), ByteOrder.Big);
         checked
         {
             switch (entry.DataType)
@@ -423,7 +423,6 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         if (value is PsoNull && entry.Subtype is 1 or 2 or 3)
             return;
         PsoText text = Value<PsoText>(value, entry);
-        Require(!text.Bytes.Contains((byte)0), "PSO text cannot contain an embedded NUL.");
         if (entry.Subtype == 0)
         {
             int capacity = (int)(entry.ReferenceKey >> 16);
@@ -448,7 +447,6 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
 
     private Location Text(PsoText text)
     {
-        Require(!text.Bytes.Contains((byte)0), "PSO text cannot contain an embedded NUL.");
         Region region = Allocate(1, checked(text.Bytes.Length + 1), 1);
         text.Bytes.CopyTo(region.Data);
         return new(region, 0);

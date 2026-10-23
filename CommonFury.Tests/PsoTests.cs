@@ -129,6 +129,28 @@ public sealed class PsoTests : IDisposable
     }
 
     [Fact]
+    public void SliceBorrowsBlockRelativeBytesWithinTheBlock()
+    {
+        var schema = new PsoSchema([new PsoStruct(0x1234, 8, [new(0x99, PsoDataType.Int64, 0, 0, 0)])]);
+        var root = new PsoBlockBuilder(0x1234);
+        root.Append([1, 2, 3, 4, 5, 6, 7, 8]);
+        var builder = new PsoBuilder(schema) { Root = root };
+        builder.Blocks.Add(root);
+        PsoFile file = builder.Build();
+
+        PsoBlock block = file.Block(file.RootBlockId);
+        Assert.Equal(PsoSectionId.Psin, file.Psin.Identifier);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, file.Psin.Data.Slice(block.Offset, block.Length).ToArray());
+        Assert.Equal(new byte[] { 3, 4, 5 }, file.Slice(new(1, 2), 3).ToArray());
+        Assert.True(file.Slice(new(1, 8), 0).IsEmpty);
+        Assert.Throws<InvalidDataException>(() => file.Slice(new(1, 6), 3).Length);
+        Assert.Throws<InvalidDataException>(() => file.Slice(new(1, 9), 0).Length);
+        Assert.Throws<InvalidDataException>(() => file.Slice(new(1, 0), -1).Length);
+        Assert.Throws<InvalidDataException>(() => file.Slice(default, 0).Length);
+        Assert.Throws<InvalidDataException>(() => file.Block(2));
+    }
+
+    [Fact]
     public void UnknownSchemas()
     {
         byte[] raw = new byte[24];

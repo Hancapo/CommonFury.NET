@@ -22,7 +22,7 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
             throw new InvalidDataException("PSO nesting exceeds the configured limit.");
         if (nodes.TryGetValue((hash, pointer), out PsoNode? cached))
         {
-            BinaryLayout.Require(reference || cached.Complete, "Recursive inline PSO structure.");
+            BinaryLayout.Require(reference || cached.IsComplete, "Recursive inline PSO structure.");
             return cached;
         }
         if (nodes.Count >= options.MaximumNodes)
@@ -198,12 +198,12 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
             return Unsupported(entry, "Array has no preceding ARRAYINFO descriptor.");
         if (entry.Subtype > 8)
             return Unsupported(entry, "Unknown array subtype.");
-        bool inline = PsoLayout.IsInlineArray(entry);
-        int stride = PsoLayout.ElementStride(file.Schema, element);
+        bool inline = entry.IsInlineArray;
+        int stride = file.Schema.ElementStride(element);
         if (inline && stride <= 0 && entry.ReferenceKey >> 16 != 0)
             return Unsupported(entry, "Array element layout is not supported.");
         BinaryLayout.Require(PsoLayout.ArrayStorageSize(entry, stride) <= field.Length, "PSO array storage exceeds its parent.");
-        int count = PsoLayout.ArrayCount(entry, stride, structure, field, file.PointerLayout);
+        int count = file.Schema.ReadArrayCount(entry, element, structure);
         // Array headers are never page-adjusted; their elements continue the owner's traversal or start a new one.
         PsoPointer pointer = inline ? Add(owner, entry.DataOffset) : ReadPointer(field);
         if (!inline && pointer.IsNull)
