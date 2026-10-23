@@ -38,6 +38,8 @@ public sealed class PsoBuilder(PsoSchema schema)
     public ulong PsinPrefix { get; set; } = 0x7070707070707070;
     /// <summary>Header word after the PMAP block count; the 24-byte header repeats it to fill its padding.</summary>
     public ushort PmapReserved { get; set; } = 0x7070;
+    /// <summary>Byte that fills the gap before each aligned block within PSIN (default 0).</summary>
+    public byte BlockPadding { get; set; }
     /// <summary>Last word of the CHKS section.</summary>
     public uint ChecksumTail { get; set; } = 0x79707070;
     /// <summary>Whether to write the terminal CHKS section (default true).</summary>
@@ -88,7 +90,8 @@ public sealed class PsoBuilder(PsoSchema schema)
         writer.WriteUInt64(PsinPrefix);
         for (int i = 0; i < Blocks.Count; i++)
         {
-            writer.WriteZeros(offsets[i] - writer.Position);
+            while (writer.Position < offsets[i])
+                writer.WriteByte(BlockPadding);
             writer.WriteBytes(Blocks[i].Data);
         }
         var patchedRanges = new HashSet<(PsoBlockBuilder, int)>();
