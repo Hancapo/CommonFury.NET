@@ -15,7 +15,7 @@ public enum LinearChannelEncoding
 public enum AnimationSequenceStorage
 {
     Uncompressed,
-    /// <summary>The payload is compressed with the format's compact codec.</summary>
+    /// <summary>The payload is compressed with the format's compact codec; written expanded when compression doesn't make it smaller.</summary>
     Compact
 }
 

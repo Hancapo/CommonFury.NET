@@ -158,6 +158,18 @@ public sealed class AnimationSequenceTests
         Assert.Throws<InvalidOperationException>(() => sequence.Write(RiceFormat));
     }
 
+    [Fact]
+    public void CompactStorageFallsBackWhenCompressionDoesNotShrink()
+    {
+        AnimationSequenceFormat growing = RiceFormat with { CompressCompact = data => [.. data.Span, 0] };
+        var sequence = new AnimationSequence(2) { Storage = AnimationSequenceStorage.Compact };
+        sequence.Tracks.Add(new SequenceTrack { Channels = { new RawFloatChannel([1, 2]) } });
+        byte[] written = sequence.Write(growing);
+        Assert.Equal(AnimationSequenceStorage.Uncompressed, AnimationSequence.Read(written, 1, growing).Storage);
+        sequence.Storage = AnimationSequenceStorage.Uncompressed;
+        Assert.Equal(sequence.Write(growing), written);
+    }
+
     private static int[] Codes(int frames) =>
         Enumerable.Range(0, frames).Select(i => (int)(5000 + 3000 * MathF.Sin(i * .21f) + (i % 7 == 0 ? 40000 : 0) + i * i)).ToArray();
 
