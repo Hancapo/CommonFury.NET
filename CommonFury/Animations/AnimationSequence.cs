@@ -270,7 +270,11 @@ public sealed class AnimationSequence
                         break;
                     case QuantizedFloatChannel quantized:
                         CheckGrid(quantized.Quantum, quantized.Offset, path);
-                        CheckCodes(quantized.ValueBits, quantized.EncodedValues, path);
+                        // Players read at most 31 bits of a quantized code; a 32-bit code reads as zero and shifts every later channel.
+                        if (quantized.ValueBits > 31)
+                            Error(AnimationDiagnosticCodes.SequenceValueWidth, "Quantized channels store at most 31 bits per code.", path);
+                        else
+                            CheckCodes(quantized.ValueBits, quantized.EncodedValues, path);
                         break;
                     case IndirectQuantizedFloatChannel indirect:
                         CheckGrid(indirect.Quantum, indirect.Offset, path);

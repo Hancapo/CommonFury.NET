@@ -108,7 +108,7 @@ public sealed class RawFloatChannel : AnimationChannel
 public sealed class QuantizedFloatChannel : AnimationChannel
 {
     public override AnimationChannelType Type => AnimationChannelType.QuantizedFloat;
-    /// <summary>Bits per stored code, 0 to 32.</summary>
+    /// <summary>Bits per stored code, 0 to 31.</summary>
     public int ValueBits { get; set; }
     public float Quantum { get; set; }
     public float Offset { get; set; }

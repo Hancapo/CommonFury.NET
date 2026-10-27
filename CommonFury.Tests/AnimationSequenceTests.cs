@@ -128,6 +128,20 @@ public sealed class AnimationSequenceTests
             "declared zero-width indirect codes");
     }
 
+    [Fact]
+    public void QuantizedCodesAreLimitedTo31Bits()
+    {
+        var sequence = new AnimationSequence(2);
+        var channel = new QuantizedFloatChannel(32, 1, 0, [1, 2]);
+        sequence.Tracks.Add(new SequenceTrack { Channels = { channel } });
+        Assert.Contains(sequence.Validate(RiceFormat).Diagnostics, issue => issue.Code == AnimationDiagnosticCodes.SequenceValueWidth);
+        Assert.Throws<ValidationException>(() => sequence.Write(RiceFormat));
+        channel.ValueBits = 31;
+        channel.EncodedValues[1] = int.MaxValue;
+        AnimationSequence decoded = AnimationSequence.Read(sequence.Write(RiceFormat), 1, RiceFormat);
+        Assert.Equal((uint)int.MaxValue, Assert.IsType<QuantizedFloatChannel>(decoded.Tracks[0].Channels[0]).EncodedValues[1]);
+    }
+
     private static int[] Codes(int frames) =>
         Enumerable.Range(0, frames).Select(i => (int)(5000 + 3000 * MathF.Sin(i * .21f) + (i % 7 == 0 ? 40000 : 0) + i * i)).ToArray();
 
