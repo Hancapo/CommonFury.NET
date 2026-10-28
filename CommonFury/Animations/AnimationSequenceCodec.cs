@@ -248,6 +248,9 @@ internal static partial class AnimationSequenceCodec
         if (sequence.Storage == AnimationSequenceStorage.Uncompressed)
             return Finish(uncompressed, format, uncompressed.AsSpan(HeaderSize));
         byte[] compact = format.CompressCompact!(uncompressed.AsMemory(HeaderSize));
+        // Compact storage only pays off when it is smaller; otherwise the block is written expanded.
+        if (compact.Length >= uncompressed.Length - HeaderSize)
+            return Finish(uncompressed, format, uncompressed.AsSpan(HeaderSize));
         int slop = BinaryLayout.Align(compact.Length, 16);
         if (slop > ushort.MaxValue)
             throw new InvalidOperationException("Compact sequence requires more in-place slop than its UInt16 header supports.");
