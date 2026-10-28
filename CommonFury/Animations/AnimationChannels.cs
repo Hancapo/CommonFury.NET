@@ -173,8 +173,9 @@ public sealed class LinearFloatChannel : AnimationChannel
     /// <summary>Frames per segment for <see cref="LinearChannelEncoding.RiceCoded"/>; must be a power of two equal to the
     /// sequence's segment size. <see cref="LinearChannelEncoding.LaneInterleaved"/> always uses 64-frame segments.</summary>
     public byte SegmentSize { get; set; }
-    /// <summary>Rice divisor (0..31) for <see cref="LinearChannelEncoding.RiceCoded"/>; unused by other encodings.</summary>
-    public byte RiceDivisor { get; set; }
+    /// <summary>Rice divisor (0..31) for <see cref="LinearChannelEncoding.RiceCoded"/>; unused by other encodings. Null selects
+    /// the divisor that gives the smallest valid code; read channels keep their stored divisor.</summary>
+    public byte? RiceDivisor { get; set; }
     internal byte[]? SourcePackedValues { get; set; }
     internal int[]? SourceValues { get; set; }
     internal byte SourceSegmentSize { get; set; }
@@ -182,7 +183,7 @@ public sealed class LinearFloatChannel : AnimationChannel
     internal LinearChannelEncoding SourceEncoding { get; set; }
     /// <summary>Copies <paramref name="encodedValues"/>.</summary>
     public LinearFloatChannel(ReadOnlySpan<int> encodedValues, float quantum, float offset = 0,
-        int componentIndex = 0, byte segmentSize = 64, byte riceDivisor = 0) : base(componentIndex)
+        int componentIndex = 0, byte segmentSize = 64, byte? riceDivisor = null) : base(componentIndex)
     { EncodedValues = encodedValues.ToArray(); Quantum = quantum; Offset = offset; SegmentSize = segmentSize; RiceDivisor = riceDivisor; }
     public override Vector4 Sample(int frame) { RequireFrame(frame, SampleCount); return new(Decode(EncodedValues[frame], Quantum, Offset), 0, 0, 0); }
     internal override Vector4 Interpolate(int first, int second, float amount) =>

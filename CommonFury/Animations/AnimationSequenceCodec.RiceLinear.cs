@@ -7,6 +7,9 @@ namespace CommonFury.Animations;
 // [3] offset; then per-segment delta addresses, per-segment initial codes and Rice-coded sign-magnitude second differences.
 internal static partial class AnimationSequenceCodec
 {
+    // Players decode the unary quotient and its sign bit from one 32-bit window, so a sign bit after 31 zeros is lost.
+    private const int MaximumRiceQuotient = 30;
+
     private static LinearFloatChannel ReadRiceLinear(ref BinarySpanReader constants, int frames, byte segmentSize, int component)
     {
         int words = constants.ReadInt32();
@@ -77,7 +80,7 @@ internal static partial class AnimationSequenceCodec
             if (reader.ReadUInt32(1) != 0)
                 break;
             quotient++;
-            BinaryLayout.Require(quotient < 32, "Linear Rice quotient exceeds the bounded 32-bit unary code.");
+            BinaryLayout.Require(quotient <= MaximumRiceQuotient, "Linear Rice quotient exceeds the 30-step unary code.");
         }
         long magnitude = ((long)quotient << divisor) | remainder;
         BinaryLayout.Require(magnitude <= int.MaxValue, "Linear Rice magnitude exceeds signed delta storage.");
@@ -105,18 +108,14 @@ internal static partial class AnimationSequenceCodec
         }
         if (!BitOperations.IsPow2(channel.SegmentSize) || channel.RiceDivisor > 31)
             throw new InvalidOperationException("Linear animation requires a power-of-two segment size and a Rice divisor of 0 through 31.");
-        int count = channel.EncodedValues.Length, size = channel.SegmentSize, divisor = channel.RiceDivisor;
+        int count = channel.EncodedValues.Length, size = channel.SegmentSize;
         int segments = (count + size - 1) / size;
         int[] initial = new int[segments];
         uint[] addresses = new uint[segments];
         int[] deltas = new int[segments * (size - 1)];
-        long deltaBits = 0;
-        uint maximumInitial = 0;
+        uint maximumInitial = 0, maximumMagnitude = 0;
         for (int segment = 0; segment < segments; segment++)
         {
-            if (deltaBits > uint.MaxValue)
-                throw new InvalidOperationException("Linear animation delta offsets exceed UInt32 storage.");
-            addresses[segment] = (uint)deltaBits;
             int first = segment * size;
             initial[segment] = channel.EncodedValues[first];
             maximumInitial = Math.Max(maximumInitial, unchecked((uint)initial[segment]));
@@ -134,12 +133,26 @@ internal static partial class AnimationSequenceCodec
                     previous = value;
                     velocity = nextVelocity;
                 }
-                long magnitude = Math.Abs(delta);
-                if (magnitude > int.MaxValue || (magnitude >> divisor) >= 32)
-                    throw new InvalidOperationException("Linear sample delta exceeds the selected Rice divisor's bounded code. Choose a larger divisor explicitly.");
+                if (Math.Abs(delta) > int.MaxValue)
+                    throw new InvalidOperationException("Linear sample delta exceeds signed storage.");
                 deltas[segment * (size - 1) + local - 1] = (int)delta;
-                deltaBits += divisor + (magnitude >> divisor) + 1 + (magnitude == 0 ? 0 : 1);
+                maximumMagnitude = Math.Max(maximumMagnitude, (uint)Math.Abs(delta));
             }
+        }
+        int minimumDivisor = 0;
+        while (maximumMagnitude >> minimumDivisor > MaximumRiceQuotient)
+            minimumDivisor++;
+        if (channel.RiceDivisor < minimumDivisor)
+            throw new InvalidOperationException("Linear sample delta exceeds the selected Rice divisor's bounded code. Choose a larger divisor or leave it unset.");
+        int divisor = channel.RiceDivisor ?? SmallestRiceDivisor(deltas, minimumDivisor);
+        long deltaBits = 0;
+        for (int segment = 0; segment < segments; segment++)
+        {
+            if (deltaBits > uint.MaxValue)
+                throw new InvalidOperationException("Linear animation delta offsets exceed UInt32 storage.");
+            addresses[segment] = (uint)deltaBits;
+            foreach (int delta in deltas.AsSpan(segment * (size - 1), size - 1))
+                deltaBits += RiceBits(delta, divisor);
         }
         int addressBits = segments == 0 ? 0 : 32 - BitOperations.LeadingZeroCount(addresses[^1]);
         int initialBits = 32 - BitOperations.LeadingZeroCount(maximumInitial);
@@ -173,5 +186,26 @@ internal static partial class AnimationSequenceCodec
                 writer.WriteUInt32(delta < 0 ? 1u : 0u, 1);
         }
         return result;
+    }
+
+    private static int SmallestRiceDivisor(int[] deltas, int minimum)
+    {
+        int best = minimum;
+        long bestBits = long.MaxValue;
+        for (int divisor = minimum; divisor <= 31; divisor++)
+        {
+            long bits = 0;
+            foreach (int delta in deltas)
+                bits += RiceBits(delta, divisor);
+            if (bits < bestBits)
+                (best, bestBits) = (divisor, bits);
+        }
+        return best;
+    }
+
+    private static long RiceBits(int delta, int divisor)
+    {
+        uint magnitude = (uint)Math.Abs(delta);
+        return divisor + (magnitude >> divisor) + 1 + (magnitude == 0 ? 0 : 1);
     }
 }

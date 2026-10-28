@@ -142,6 +142,22 @@ public sealed class AnimationSequenceTests
         Assert.Equal((uint)int.MaxValue, Assert.IsType<QuantizedFloatChannel>(decoded.Tracks[0].Channels[0]).EncodedValues[1]);
     }
 
+    [Theory]
+    [InlineData(new[] { 100, 100, 69, 38, 7 }, 0)]
+    [InlineData(new[] { 0, 0, -63 }, 1)]
+    public void RiceQuotientsStayWithinTheirDecodableRange(int[] codes, byte tooSmall)
+    {
+        // Second differences of 31 (or 63 with divisor 1) need a 31-step quotient, whose sign bit is lost on decode.
+        var channel = new LinearFloatChannel(codes, 1);
+        var sequence = new AnimationSequence(codes.Length) { SegmentSize = 64 };
+        sequence.Tracks.Add(new SequenceTrack { Channels = { channel } });
+        var read = Assert.IsType<LinearFloatChannel>(AnimationSequence.Read(sequence.Write(RiceFormat), 1, RiceFormat).Tracks[0].Channels[0]);
+        Assert.Equal(codes, read.EncodedValues);
+        Assert.True(read.RiceDivisor > tooSmall);
+        channel.RiceDivisor = tooSmall;
+        Assert.Throws<InvalidOperationException>(() => sequence.Write(RiceFormat));
+    }
+
     private static int[] Codes(int frames) =>
         Enumerable.Range(0, frames).Select(i => (int)(5000 + 3000 * MathF.Sin(i * .21f) + (i % 7 == 0 ? 40000 : 0) + i * i)).ToArray();
 
