@@ -171,7 +171,7 @@ internal static partial class AnimationSequenceCodec
             case AnimationChannelType.QuantizedFloat:
                 int bits = reader.ReadInt32();
                 float quantum = reader.ReadSingle(), offset = reader.ReadSingle();
-                BinaryLayout.Require(bits is >= 0 and <= 32, "Quantized animation bit width exceeds UInt32 storage.");
+                BinaryLayout.Require(bits is >= 0 and <= 31, "Quantized animation bit width exceeds 31 bits.");
                 return new QuantizedFloatChannel(bits, quantum, offset, new uint[frames], component);
             case AnimationChannelType.IndirectQuantizedFloat:
                 int frameBits = reader.ReadInt32(), valueBits = reader.ReadInt32(), words = reader.ReadInt32();
