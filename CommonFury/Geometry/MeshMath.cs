@@ -66,8 +66,10 @@ public static class MeshMath
         for (int i = 0; i < result.Length; i++)
         {
             Vector3 normal = VectorMath.NormalizeOr(normals[i], Vector3.UnitZ, epsilon);
-            Vector3 fallback = JointFrameMath.OrthogonalAxes(normal).First;
-            Vector3 t = VectorMath.NormalizeOr(tangent[i] - normal * Vector3.Dot(normal, tangent[i]), fallback, epsilon);
+            // A normalized tangent is never zero, so zero marks a projection too short to normalize.
+            Vector3 t = VectorMath.NormalizeOr(tangent[i] - normal * Vector3.Dot(normal, tangent[i]), Vector3.Zero, epsilon);
+            if (t == Vector3.Zero)
+                t = JointFrameMath.OrthogonalAxes(normal).First;
             result[i] = new(t, Vector3.Dot(Vector3.Cross(normal, t), bitangent[i]) >= 0 ? 1 : -1);
         }
         return result;

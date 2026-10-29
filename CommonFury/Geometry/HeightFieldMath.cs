@@ -6,6 +6,8 @@ namespace CommonFury.Geometry;
 /// <summary>Height interpolation over the XY plane; Z is height.</summary>
 public static class HeightFieldMath
 {
+    private const int MaximumBufferedSamples = 64;
+
     /// <summary>Interpolates a triangle's Z at an XY point. Returns false when the triangle's XY projection is degenerate
     /// or the point lies outside it by more than <paramref name="tolerance"/> (in barycentric units).</summary>
     public static bool TryTriangleHeight(Vector2 point, Vector3 a, Vector3 b, Vector3 c, out float height, float tolerance = 1e-5f)
@@ -13,14 +15,9 @@ public static class HeightFieldMath
         VectorMath.RequireEpsilon(tolerance);
         if (!VectorMath.IsFinite(point) || !VectorMath.IsFinite(a) || !VectorMath.IsFinite(b) || !VectorMath.IsFinite(c))
             throw new ArgumentException("Height geometry must be finite.");
-        double denominator = ((double)b.Y - c.Y) * (a.X - c.X) + ((double)c.X - b.X) * (a.Y - c.Y);
+        var triangle = new BarycentricTriangle(a, b, c);
         height = 0;
-        if (Math.Abs(denominator) <= 1e-9)
-            return false;
-        double wa = (((double)b.Y - c.Y) * (point.X - c.X) + ((double)c.X - b.X) * (point.Y - c.Y)) / denominator;
-        double wb = (((double)c.Y - a.Y) * (point.X - c.X) + ((double)a.X - c.X) * (point.Y - c.Y)) / denominator;
-        double wc = 1 - wa - wb;
-        if (wa < -tolerance || wb < -tolerance || wc < -tolerance)
+        if (triangle.IsDegenerate || !triangle.Contains(point, tolerance, out double wa, out double wb, out double wc))
             return false;
         height = (float)(wa * a.Z + wb * b.Z + wc * c.Z);
         return true;
@@ -34,25 +31,51 @@ public static class HeightFieldMath
             throw new ArgumentException("A finite point and nonempty samples are required.");
         if (nearestCount <= 0 || !float.IsFinite(power) || power <= 0)
             throw new ArgumentOutOfRangeException(nameof(nearestCount));
-        var distances = new (double Distance, float Z, int Index)[samples.Length];
+        int count = Math.Min(nearestCount, samples.Length);
+        // Small counts keep the nearest samples in a sorted insertion buffer; large ones sort every sample.
+        bool buffered = count <= MaximumBufferedSamples;
+        Span<double> distances = buffered ? stackalloc double[count] : new double[count];
+        Span<float> heights = buffered ? stackalloc float[count] : new float[count];
+        var sorted = buffered ? null : new (double Distance, float Z, int Index)[samples.Length];
+        int filled = 0, exact = -1;
         for (int i = 0; i < samples.Length; i++)
         {
             Vector3 sample = samples[i];
             if (!VectorMath.IsFinite(sample))
                 throw new ArgumentException("Height samples must be finite.", nameof(samples));
             double dx = (double)sample.X - point.X, dy = (double)sample.Y - point.Y;
-            distances[i] = (dx * dx + dy * dy, sample.Z, i);
+            double distance = dx * dx + dy * dy;
+            if (exact < 0 && distance <= 1e-12)
+                exact = i;
+            if (sorted is not null)
+                sorted[i] = (distance, sample.Z, i);
+            else if (filled < count || distance < distances[count - 1])
+            {
+                // Equal distances stay in index order.
+                int slot = filled < count ? filled++ : count - 1;
+                for (; slot > 0 && distances[slot - 1] > distance; slot--)
+                {
+                    distances[slot] = distances[slot - 1];
+                    heights[slot] = heights[slot - 1];
+                }
+                distances[slot] = distance;
+                heights[slot] = sample.Z;
+            }
         }
-        foreach (var value in distances)
-            if (value.Distance <= 1e-12)
-                return value.Z;
-        Array.Sort(distances, (a, b) => a.Distance == b.Distance ? a.Index.CompareTo(b.Index) : a.Distance.CompareTo(b.Distance));
-        double weighted = 0, total = 0;
-        double nearest = distances[0].Distance;
-        for (int i = 0; i < Math.Min(nearestCount, distances.Length); i++)
+        if (exact >= 0)
+            return samples[exact].Z;
+        if (sorted is not null)
         {
-            double weight = Math.Pow(nearest / distances[i].Distance, power * 0.5);
-            weighted += distances[i].Z * weight;
+            Array.Sort(sorted, (a, b) => a.Distance == b.Distance ? a.Index.CompareTo(b.Index) : a.Distance.CompareTo(b.Distance));
+            for (int i = 0; i < count; i++)
+                (distances[i], heights[i]) = (sorted[i].Distance, sorted[i].Z);
+        }
+        double weighted = 0, total = 0;
+        double nearest = distances[0];
+        for (int i = 0; i < count; i++)
+        {
+            double weight = Math.Pow(nearest / distances[i], power * 0.5);
+            weighted += heights[i] * weight;
             total += weight;
         }
         return (float)(weighted / total);

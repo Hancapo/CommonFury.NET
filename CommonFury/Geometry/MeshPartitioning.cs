@@ -60,13 +60,20 @@ public static class MeshPartitioning
             if (current == previous)
                 continue;
             if (pending >= 0)
-                result.AddRange([start, pending, previous]);
+                AddTriangle(result, start, pending, previous);
             pending = previous == start && pending < 0 ? -1 : previous;
             previous = current;
         }
         if (pending >= 0 && previous != start)
-            result.AddRange([start, pending, previous]);
+            AddTriangle(result, start, pending, previous);
         return result.ToArray();
+    }
+
+    private static void AddTriangle(List<int> triangles, int a, int b, int c)
+    {
+        triangles.Add(a);
+        triangles.Add(b);
+        triangles.Add(c);
     }
 
     /// <summary>Splits whole triangles into partitions of at most <paramref name="maximumVertices"/> vertices, in input order.
@@ -79,7 +86,9 @@ public static class MeshPartitioning
         if (vertexCount <= maximumVertices)
             return [new(Enumerable.Range(0, vertexCount).ToArray(), indices.ToArray())];
         var results = new List<MeshPartition>();
-        var remap = new Dictionary<int, int>();
+        // Local index of each source vertex in the current partition, or -1.
+        var remap = new int[vertexCount];
+        Array.Fill(remap, -1);
         var vertices = new List<int>();
         var triangles = new List<int>();
         void Finish()
@@ -87,7 +96,8 @@ public static class MeshPartitioning
             if (triangles.Count == 0)
                 return;
             results.Add(new(vertices.ToArray(), triangles.ToArray()));
-            remap.Clear();
+            foreach (int id in vertices)
+                remap[id] = -1;
             vertices.Clear();
             triangles.Clear();
         }
@@ -95,17 +105,18 @@ public static class MeshPartitioning
         {
             int missing = 0;
             for (int lane = 0; lane < 3; lane++)
-                if (!remap.ContainsKey(indices[i + lane]) && (lane == 0 || indices[i + lane] != indices[i]) && (lane < 2 || indices[i + lane] != indices[i + 1]))
+                if (remap[indices[i + lane]] < 0 && (lane == 0 || indices[i + lane] != indices[i]) && (lane < 2 || indices[i + lane] != indices[i + 1]))
                     missing++;
-            if (remap.Count + missing > maximumVertices)
+            if (vertices.Count + missing > maximumVertices)
                 Finish();
             for (int lane = 0; lane < 3; lane++)
             {
                 int id = indices[i + lane];
-                if (!remap.TryGetValue(id, out int local))
+                int local = remap[id];
+                if (local < 0)
                 {
-                    local = remap.Count;
-                    remap.Add(id, local);
+                    local = vertices.Count;
+                    remap[id] = local;
                     vertices.Add(id);
                 }
                 triangles.Add(local);
