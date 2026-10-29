@@ -28,15 +28,17 @@ internal static partial class AnimationSequenceCodec
             "Animation sequence exceeds the supported storage limit.");
         int storedSize = checked((int)(compactLength == 0 ? length : compactLength));
         BinaryLayout.Require(data.Length == HeaderSize + storedSize, "Animation sequence allocation does not match its declared payload size.");
-        byte[] payload;
+        byte[] original = data.ToArray();
+        ReadOnlySpan<byte> payload;
         if (compactLength == 0)
-            payload = data[HeaderSize..].ToArray();
+            payload = original.AsSpan(HeaderSize);
         else
         {
             if (format.DecompressCompact is not { } decompress)
                 throw new NotSupportedException("Compact (compressed) animation blocks are not supported by this format.");
-            payload = decompress(data[HeaderSize..].ToArray(), (int)length);
-            BinaryLayout.Require(payload.Length == length, "Compact animation payload does not expand to its declared size.");
+            byte[] expanded = decompress(original.AsMemory(HeaderSize), (int)length);
+            BinaryLayout.Require(expanded.Length == length, "Compact animation payload does not expand to its declared size.");
+            payload = expanded;
         }
         long indexOffset = constantSize + (long)frames * frameSize;
         BinaryLayout.Require(constantSize % 4 == 0 && frameSize % 4 == 0 && indexOffset <= payload.Length - countBytes,
@@ -49,13 +51,20 @@ internal static partial class AnimationSequenceCodec
             Storage = compactLength == 0 ? AnimationSequenceStorage.Uncompressed : AnimationSequenceStorage.Compact,
         };
         // A derived hash covers the expanded payload, whether the block is stored compact or not.
-        if (format.HashPolicy == AnimationSequenceHashPolicy.Derive && hash != DataHash(payload))
-            result.AddRewriteNotice(AnimationDiagnosticCodes.SequenceHash, "Stored block hash differs from the payload hash; writing derives it.", "Hash");
+        if (format.HashPolicy == AnimationSequenceHashPolicy.Derive)
+        {
+            uint payloadHash = DataHash(payload);
+            if (hash != payloadHash)
+                result.AddRewriteNotice(AnimationDiagnosticCodes.SequenceHash, "Stored block hash differs from the payload hash; writing derives it.", "Hash");
+            // An unedited uncompressed block is rewritten from these same bytes.
+            if (compactLength == 0)
+                result.OriginalPayloadHash = payloadHash;
+        }
         for (int i = 0; i < trackCount; i++)
             result.Tracks.Add(new());
-        var constants = new BinarySpanReader(payload.AsSpan(0, (int)constantSize));
-        var counts = new BinarySpanReader(payload.AsSpan((int)indexOffset, countBytes));
-        var descriptors = new BinarySpanReader(payload.AsSpan((int)indexOffset + countBytes));
+        var constants = new BinarySpanReader(payload[..(int)constantSize]);
+        var counts = new BinarySpanReader(payload.Slice((int)indexOffset, countBytes));
+        var descriptors = new BinarySpanReader(payload[((int)indexOffset + countBytes)..]);
         int frameBitOffset = 0, actualIndirectWords = 0, actualQuantizeBits = 0;
         long decodedBytes = 0;
         for (int group = 0; group < table.GroupCount; group++)
@@ -104,24 +113,19 @@ internal static partial class AnimationSequenceCodec
             "Animation channel group sizes disagree with the sequence header.");
         if (constants.ReadBytes(constants.Remaining).ContainsAnyExcept((byte)0))
             result.AddDiagnostic(AnimationDiagnosticCodes.SequenceConstantPadding, "Nonzero bytes follow the decoded constant channels; rewriting an edited sequence would discard them.", "SourceEncoding");
+        FrameField[] fields = FrameFields(result.SourceChannelOrder);
         for (int frame = 0; frame < frames; frame++)
         {
-            var reader = new BinaryBitReader(payload.AsSpan((int)constantSize + frame * frameSize, frameSize));
-            foreach (AnimationChannel channel in result.SourceChannelOrder)
+            var reader = new BinaryBitReader(payload.Slice((int)constantSize + frame * frameSize, frameSize));
+            foreach (FrameField field in fields)
             {
-                switch (channel)
+                uint value = reader.ReadUInt32(field.Bits);
+                if (field.Raw is { } raw)
+                    raw[frame] = BitConverter.UInt32BitsToSingle(value);
+                else
                 {
-                    case RawFloatChannel raw:
-                        raw.Values[frame] = BitConverter.UInt32BitsToSingle(reader.ReadUInt32(32));
-                        break;
-                    case QuantizedFloatChannel quantized:
-                        quantized.EncodedValues[frame] = reader.ReadUInt32(quantized.ValueBits);
-                        break;
-                    case IndirectQuantizedFloatChannel indirect:
-                        uint index = reader.ReadUInt32(indirect.FrameIndexBits);
-                        BinaryLayout.Require(indirect.ValueBits == 0 || index < indirect.EncodedValues.Length, "Indirect animation frame index exceeds its bounded value table.");
-                        indirect.FrameIndices[frame] = index;
-                        break;
+                    BinaryLayout.Require(value < field.Limit, "Indirect animation frame index exceeds its bounded value table.");
+                    field.Codes[frame] = value;
                 }
             }
             while (reader.Remaining > 0)
@@ -137,9 +141,9 @@ internal static partial class AnimationSequenceCodec
         int actualRootOffset = rootOffset == 0 && rootCounts == 0 ? referencesStart : (int)rootOffset - HeaderSize;
         BinaryLayout.Require(actualRootOffset >= referencesStart && actualRootOffset <= payload.Length - (translationCount + rotationCount) * 6,
             "Mover references exceed their sequence allocation or overlap channel descriptors.");
-        if (payload.AsSpan(referencesStart, actualRootOffset - referencesStart).ContainsAnyExcept((byte)0))
+        if (payload[referencesStart..actualRootOffset].ContainsAnyExcept((byte)0))
             result.AddDiagnostic(AnimationDiagnosticCodes.SequenceReferencePadding, "Nonzero bytes before mover references are retained in the source encoding.", "SourceEncoding");
-        var references = new BinarySpanReader(payload.AsSpan(actualRootOffset));
+        var references = new BinarySpanReader(payload[actualRootOffset..]);
         ReadReferences(result.SourceTranslationReferences, translationCount, table, ref references);
         ReadReferences(result.SourceRotationReferences, rotationCount, table, ref references);
         if (references.ReadBytes(references.Remaining).ContainsAnyExcept((byte)0))
@@ -147,8 +151,9 @@ internal static partial class AnimationSequenceCodec
         result.RootReferencesBound = rootCounts == 0;
         if (format.BindRootReferencesOnRead)
             result.BindRootReferencesToAnyTrack();
-        result.OriginalBytes = data.ToArray();
+        result.OriginalBytes = original;
         result.OriginalStorage = result.Storage;
+        result.OriginalHashDerived = format.HashPolicy == AnimationSequenceHashPolicy.Derive;
         result.OriginalCanonicalBytes = EncodeUncompressed(result, format);
         return result;
     }
@@ -167,12 +172,12 @@ internal static partial class AnimationSequenceCodec
             case AnimationChannelType.StaticFloat:
                 return new StaticFloatChannel(reader.ReadSingle(), component);
             case AnimationChannelType.RawFloat:
-                return new RawFloatChannel(new float[frames], component);
+                return new RawFloatChannel(frames, component);
             case AnimationChannelType.QuantizedFloat:
                 int bits = reader.ReadInt32();
                 float quantum = reader.ReadSingle(), offset = reader.ReadSingle();
                 BinaryLayout.Require(bits is >= 0 and <= 31, "Quantized animation bit width exceeds 31 bits.");
-                return new QuantizedFloatChannel(bits, quantum, offset, new uint[frames], component);
+                return new QuantizedFloatChannel(bits, quantum, offset, frames, component);
             case AnimationChannelType.IndirectQuantizedFloat:
                 int frameBits = reader.ReadInt32(), valueBits = reader.ReadInt32(), words = reader.ReadInt32();
                 float indirectQuantum = reader.ReadSingle(), indirectOffset = reader.ReadSingle();
@@ -185,8 +190,8 @@ internal static partial class AnimationSequenceCodec
                 var valueReader = new BinaryBitReader(packed);
                 for (int i = 0; i < codes.Length; i++)
                     codes[i] = valueReader.ReadUInt32(valueBits);
-                return new IndirectQuantizedFloatChannel(frameBits, valueBits, indirectQuantum, indirectOffset, codes, new uint[frames], component)
-                { SourcePackedValues = packed, SourceValues = (uint[])codes.Clone(), SourceValueBits = valueBits };
+                return new IndirectQuantizedFloatChannel(frameBits, valueBits, indirectQuantum, indirectOffset, codes, frames, component)
+                { SourcePackedValues = packed, SourceValues = codes, SourceValueBits = valueBits };
             case AnimationChannelType.LinearFloat:
                 return format.LinearEncoding switch
                 {
@@ -220,37 +225,44 @@ internal static partial class AnimationSequenceCodec
         sequence.Validate(format).ThrowIfInvalid();
         if (sequence.Storage == AnimationSequenceStorage.Compact && format.CompressCompact is null)
             throw new NotSupportedException("Compact animation storage is not supported by this format.");
+        bool derive = format.HashPolicy == AnimationSequenceHashPolicy.Derive;
         byte[] uncompressed = EncodeUncompressed(sequence, format);
-        bool unchanged = sequence.OriginalCanonicalBytes is not null && uncompressed.AsSpan().SequenceEqual(sequence.OriginalCanonicalBytes);
+        bool unchanged = MatchesSource(sequence, uncompressed, derive);
+        // Derived hashes cover the expanded payload, so compact and uncompressed storage of the same data share a hash.
         if (unchanged && sequence.Storage == sequence.OriginalStorage)
         {
             byte[] original = sequence.OriginalBytes!.ToArray();
-            if (format.HashPolicy != AnimationSequenceHashPolicy.Derive)
+            if (!derive)
                 return original;
-            return Finish(original, format, sequence.OriginalStorage == AnimationSequenceStorage.Compact
-                ? format.DecompressCompact!(original.AsMemory(HeaderSize), checked((int)BinaryPrimitives.ReadUInt32LittleEndian(original.AsSpan(4))))
-                : original.AsSpan(HeaderSize));
+            uint hash = sequence.OriginalStorage == AnimationSequenceStorage.Compact
+                ? DataHash(format.DecompressCompact!(original.AsMemory(HeaderSize), checked((int)BinaryPrimitives.ReadUInt32LittleEndian(original.AsSpan(4)))))
+                : sequence.OriginalPayloadHash ?? DataHash(original.AsSpan(HeaderSize));
+            BinaryPrimitives.WriteUInt32LittleEndian(original, hash);
+            return original;
         }
         if (!unchanged && (sequence.HasUnmodeledData || !sequence.RootReferencesBound && (sequence.SourceTranslationReferences.Count + sequence.SourceRotationReferences.Count > 0)))
             throw new InvalidOperationException("Edited sequence cannot preserve unmodeled source data or unresolved mover references. Resolve the source diagnostics before rewriting.");
-        if (unchanged && sequence.OriginalBytes is not null)
+        if (unchanged && sequence.OriginalBytes is { } source)
         {
-            ReadOnlySpan<byte> source = sequence.OriginalBytes;
-            int originalSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(source[4..]));
-            byte[] body = sequence.OriginalStorage == AnimationSequenceStorage.Compact
-                ? format.DecompressCompact!(source[HeaderSize..].ToArray(), originalSize)
-                : source[HeaderSize..].ToArray();
-            uncompressed = new byte[HeaderSize + body.Length];
-            source[..HeaderSize].CopyTo(uncompressed);
-            body.CopyTo(uncompressed, HeaderSize);
+            if (sequence.OriginalStorage == AnimationSequenceStorage.Compact)
+            {
+                byte[] body = format.DecompressCompact!(source.AsMemory(HeaderSize), checked((int)BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(4))));
+                uncompressed = new byte[HeaderSize + body.Length];
+                source.AsSpan(0, HeaderSize).CopyTo(uncompressed);
+                body.CopyTo(uncompressed, HeaderSize);
+            }
+            else
+                uncompressed = source.ToArray();
             BinaryPrimitives.WriteUInt32LittleEndian(uncompressed.AsSpan(8), 0);
         }
+        if (derive)
+            BinaryPrimitives.WriteUInt32LittleEndian(uncompressed, DataHash(uncompressed.AsSpan(HeaderSize)));
         if (sequence.Storage == AnimationSequenceStorage.Uncompressed)
-            return Finish(uncompressed, format, uncompressed.AsSpan(HeaderSize));
+            return uncompressed;
         byte[] compact = format.CompressCompact!(uncompressed.AsMemory(HeaderSize));
         // Compact storage only pays off when it is smaller; otherwise the block is written expanded.
         if (compact.Length >= uncompressed.Length - HeaderSize)
-            return Finish(uncompressed, format, uncompressed.AsSpan(HeaderSize));
+            return uncompressed;
         int slop = BinaryLayout.Align(compact.Length, 16);
         if (slop > ushort.MaxValue)
             throw new InvalidOperationException("Compact sequence requires more in-place slop than its UInt16 header supports.");
@@ -259,15 +271,20 @@ internal static partial class AnimationSequenceCodec
         compact.CopyTo(result, HeaderSize);
         BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(8), (uint)compact.Length);
         BinaryPrimitives.WriteUInt16LittleEndian(result.AsSpan(0x14), (ushort)slop);
-        return Finish(result, format, uncompressed.AsSpan(HeaderSize));
+        return result;
     }
 
-    // Derived hashes cover the expanded payload, so compact and uncompressed storage of the same data share a hash.
-    private static byte[] Finish(byte[] block, AnimationSequenceFormat format, ReadOnlySpan<byte> expandedPayload)
+    // The canonical copy holds the hash that was read. A derived hash is a function of the payload, so it matches whenever the
+    // rest of the block does; it is only computed when exactly one of the read and write formats derives it.
+    private static bool MatchesSource(AnimationSequence sequence, byte[] uncompressed, bool derive)
     {
-        if (format.HashPolicy == AnimationSequenceHashPolicy.Derive)
-            BinaryPrimitives.WriteUInt32LittleEndian(block, DataHash(expandedPayload));
-        return block;
+        if (sequence.OriginalCanonicalBytes is not { } canonical || !uncompressed.AsSpan(4).SequenceEqual(canonical.AsSpan(4)))
+            return false;
+        if (derive && sequence.OriginalHashDerived)
+            return true;
+        uint current = derive ? DataHash(uncompressed.AsSpan(HeaderSize)) : sequence.Hash;
+        uint source = sequence.OriginalHashDerived ? DataHash(uncompressed.AsSpan(HeaderSize)) : BinaryPrimitives.ReadUInt32LittleEndian(canonical);
+        return current == source;
     }
 
     // Integrity hash of the payload after the header: one-at-a-time over sign-extended bytes, then finalized.
@@ -280,6 +297,29 @@ internal static partial class AnimationSequenceCodec
     }
 
     private sealed record ChannelLocation(AnimationChannel Channel, ushort Descriptor, int WordOffset, int BitOffset, byte[] ConstantData);
+
+    // A per-frame field: raw sample bits, or a quantized code or indirect table index in Codes. Decoded indices must stay
+    // below Limit.
+    private readonly record struct FrameField(int Bits, float[]? Raw, uint[] Codes, long Limit);
+
+    private static FrameField[] FrameFields(IEnumerable<AnimationChannel> channels)
+    {
+        var fields = new List<FrameField>();
+        foreach (AnimationChannel channel in channels)
+            switch (channel)
+            {
+                case RawFloatChannel raw:
+                    fields.Add(new(32, raw.Values, [], long.MaxValue));
+                    break;
+                case QuantizedFloatChannel quantized:
+                    fields.Add(new(quantized.ValueBits, null, quantized.EncodedValues, long.MaxValue));
+                    break;
+                case IndirectQuantizedFloatChannel indirect:
+                    fields.Add(new(indirect.FrameIndexBits, null, indirect.FrameIndices, indirect.ValueBits == 0 ? long.MaxValue : indirect.EncodedValues.Length));
+                    break;
+            }
+        return [.. fields];
+    }
 
     private static byte[] EncodeUncompressed(AnimationSequence sequence, AnimationSequenceFormat format)
     {
@@ -340,23 +380,12 @@ internal static partial class AnimationSequenceCodec
         foreach (List<ChannelLocation> group in groups)
             foreach (ChannelLocation location in group)
                 writer.WriteBytes(location.ConstantData);
+        FrameField[] fields = FrameFields(groups.SelectMany(group => group, (_, location) => location.Channel));
         for (int frame = 0; frame < sequence.FrameCount; frame++)
         {
             var bits = new BinaryBitWriter(result.AsSpan(HeaderSize + constantBytes + frameBytes * frame, frameBytes));
-            foreach (List<ChannelLocation> group in groups)
-                foreach (ChannelLocation location in group)
-                    switch (location.Channel)
-                    {
-                        case RawFloatChannel raw:
-                            bits.WriteUInt32(BitConverter.SingleToUInt32Bits(raw.Values[frame]), 32);
-                            break;
-                        case QuantizedFloatChannel q:
-                            bits.WriteUInt32(q.EncodedValues[frame], q.ValueBits);
-                            break;
-                        case IndirectQuantizedFloatChannel indirect:
-                            bits.WriteUInt32(indirect.FrameIndices[frame], indirect.FrameIndexBits);
-                            break;
-                    }
+            foreach (FrameField field in fields)
+                bits.WriteUInt32(field.Raw is { } raw ? BitConverter.SingleToUInt32Bits(raw[frame]) : field.Codes[frame], field.Bits);
         }
         writer.Seek(HeaderSize + constantBytes + frameBytes * sequence.FrameCount);
         foreach (List<ChannelLocation> group in groups)
@@ -375,8 +404,6 @@ internal static partial class AnimationSequenceCodec
             writer.WriteUInt16(reference.WordOffset);
             writer.WriteUInt16(reference.BitOffset);
         }
-        if (format.HashPolicy == AnimationSequenceHashPolicy.Derive)
-            BinaryPrimitives.WriteUInt32LittleEndian(result, DataHash(result.AsSpan(HeaderSize)));
         return result;
 
         List<RootChannelReference> References(List<AnimationChannel> channels, List<RootChannelReference> source)

@@ -64,7 +64,7 @@ internal static partial class AnimationSequenceCodec
         writer.WriteBytes(packed);
         return new(values, quantum, offset, component, segmentSize, (byte)divisor)
         {
-            SourcePackedValues = source, SourceValues = (int[])values.Clone(), SourceSegmentSize = segmentSize,
+            SourcePackedValues = source, SourceValues = values, SourceSegmentSize = segmentSize,
             SourceRiceDivisor = (byte)divisor, SourceEncoding = LinearChannelEncoding.RiceCoded
         };
     }
@@ -73,15 +73,15 @@ internal static partial class AnimationSequenceCodec
     {
         RequireBits(reader, divisor, limit);
         uint remainder = reader.ReadUInt32(divisor);
-        uint quotient = 0;
-        while (true)
+        // The unary quotient is decoded from one window of at most 31 bits: a terminator beyond it exceeds the bounded quotient.
+        int window = (int)Math.Min(limit - reader.Position, MaximumRiceQuotient + 1);
+        int quotient = BitOperations.TrailingZeroCount(reader.ReadUInt32At(reader.Position, window));
+        if (quotient >= window)
         {
-            RequireBits(reader, 1, limit);
-            if (reader.ReadUInt32(1) != 0)
-                break;
-            quotient++;
-            BinaryLayout.Require(quotient <= MaximumRiceQuotient, "Linear Rice quotient exceeds the 30-step unary code.");
+            BinaryLayout.Require(window > MaximumRiceQuotient, "Linear Rice code exceeds its own segment allocation.");
+            throw new InvalidDataException("Linear Rice quotient exceeds the 30-step unary code.");
         }
+        reader.Seek(reader.Position + quotient + 1);
         long magnitude = ((long)quotient << divisor) | remainder;
         BinaryLayout.Require(magnitude <= int.MaxValue, "Linear Rice magnitude exceeds signed delta storage.");
         if (magnitude == 0)
@@ -151,8 +151,7 @@ internal static partial class AnimationSequenceCodec
             if (deltaBits > uint.MaxValue)
                 throw new InvalidOperationException("Linear animation delta offsets exceed UInt32 storage.");
             addresses[segment] = (uint)deltaBits;
-            foreach (int delta in deltas.AsSpan(segment * (size - 1), size - 1))
-                deltaBits += RiceBits(delta, divisor);
+            deltaBits += RiceBits(deltas.AsSpan(segment * (size - 1), size - 1), divisor);
         }
         int addressBits = segments == 0 ? 0 : 32 - BitOperations.LeadingZeroCount(addresses[^1]);
         int initialBits = 32 - BitOperations.LeadingZeroCount(maximumInitial);
@@ -179,28 +178,35 @@ internal static partial class AnimationSequenceCodec
         {
             uint magnitude = (uint)Math.Abs(delta), quotient = magnitude >> divisor;
             writer.WriteUInt32(magnitude & mask, divisor);
-            for (int i = 0; i < quotient; i++)
-                writer.WriteUInt32(0, 1);
-            writer.WriteUInt32(1, 1);
+            // The quotient's zero bits and their terminating one bit.
+            writer.WriteUInt32(1u << (int)quotient, (int)quotient + 1);
             if (magnitude != 0)
                 writer.WriteUInt32(delta < 0 ? 1u : 0u, 1);
         }
         return result;
     }
 
+    // Raising the divisor from k saves ceil((m >> k) / 2) - 1 bits per magnitude m, which never grows with k, so the total is
+    // convex in the divisor: the first divisor that the next one doesn't improve on is the smallest optimum.
     private static int SmallestRiceDivisor(int[] deltas, int minimum)
     {
-        int best = minimum;
-        long bestBits = long.MaxValue;
-        for (int divisor = minimum; divisor <= 31; divisor++)
+        long bits = RiceBits(deltas, minimum);
+        for (int divisor = minimum; divisor < 31; divisor++)
         {
-            long bits = 0;
-            foreach (int delta in deltas)
-                bits += RiceBits(delta, divisor);
-            if (bits < bestBits)
-                (best, bestBits) = (divisor, bits);
+            long next = RiceBits(deltas, divisor + 1);
+            if (next >= bits)
+                return divisor;
+            bits = next;
         }
-        return best;
+        return 31;
+    }
+
+    private static long RiceBits(ReadOnlySpan<int> deltas, int divisor)
+    {
+        long bits = 0;
+        foreach (int delta in deltas)
+            bits += RiceBits(delta, divisor);
+        return bits;
     }
 
     private static long RiceBits(int delta, int divisor)

@@ -42,9 +42,11 @@ internal static partial class AnimationSequenceCodec
             values[first] = value;
             for (int group = 0, t = 0; group < groups; group++)
             {
-                int width = 0;
-                while (width < 32 && Bits(stream, unary + width, 1, dataBase) == 0)
-                    width++;
+                // The unary width code is decoded from one window of up to 32 bits; a terminator past the stream is out of range.
+                int window = (int)Math.Clamp((long)dataBase * 32 - unary, 0, 32);
+                int width = BitOperations.TrailingZeroCount(Bits(stream, unary, window, dataBase));
+                if (width > window)
+                    throw new InvalidDataException("Linear channel bit field exceeds its stream.");
                 unary += width + 1;
                 for (int lane = 0; lane < 4; lane++, t++)
                 {
@@ -64,7 +66,7 @@ internal static partial class AnimationSequenceCodec
         }
         return new LinearFloatChannel(values, quantum, offset, component, LaneSegmentFrames)
         {
-            SourcePackedValues = WordsToBytes(stream), SourceValues = (int[])values.Clone(),
+            SourcePackedValues = WordsToBytes(stream), SourceValues = values,
             SourceSegmentSize = LaneSegmentFrames, SourceEncoding = LinearChannelEncoding.LaneInterleaved
         };
     }
@@ -116,6 +118,8 @@ internal static partial class AnimationSequenceCodec
         var widths = new List<int>();
         var lanes = new List<uint>[] { [], [], [], [] };
         long laneBits = 0;
+        // A segment has at most 63 in-segment deltas and one bridging delta.
+        Span<int> deltas = stackalloc int[LaneSegmentFrames];
         for (int segment = 0; segment < segments; segment++)
         {
             if (laneBits > uint.MaxValue)
@@ -126,20 +130,18 @@ internal static partial class AnimationSequenceCodec
                 throw new InvalidOperationException("Linear segment initial codes must be nonnegative.");
             initials[segment] = (uint)codes[first];
             int targets = count - 1 + (first + LaneSegmentFrames < frames ? 1 : 0);
-            var deltas = new List<int>();
+            deltas.Clear();
             long previous = codes[first], velocity = 0;
             for (int t = 1; t <= targets; t++)
             {
                 long next = codes[first + t] - previous, delta = next - velocity;
                 if (next is < int.MinValue or > int.MaxValue || delta is < int.MinValue or > int.MaxValue)
                     throw new InvalidOperationException("Linear second difference exceeds signed storage.");
-                deltas.Add((int)delta);
+                deltas[t - 1] = (int)delta;
                 velocity = next;
                 previous = codes[first + t];
             }
-            while (deltas.Count % 4 != 0)
-                deltas.Add(0);
-            for (int group = 0; group < deltas.Count / 4; group++)
+            for (int group = 0; group < (targets + 3) / 4; group++)
             {
                 uint maximum = 0;
                 for (int lane = 0; lane < 4; lane++)
