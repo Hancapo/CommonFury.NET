@@ -1,5 +1,5 @@
-/* Decode-only miniaudio build for CommonFury.Miniaudio: WAV, FLAC and Ogg Vorbis (stb_vorbis) to native-rate f32.
-   The exports are private to the managed wrapper and carry no compatibility promise. */
+/* Decode-only miniaudio build for CommonFury.Miniaudio: WAV, FLAC, MP3 and Ogg Vorbis (stb_vorbis) to native-rate
+   f32. The exports are private to the managed wrapper and carry no compatibility promise. */
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -13,7 +13,6 @@
 #define MA_NO_GENERATION
 #define MA_NO_ENCODING
 #define MA_NO_THREADING
-#define MA_NO_MP3
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
@@ -26,7 +25,7 @@
 #define CFA_API __attribute__((visibility("default")))
 #endif
 
-enum { CFA_WAV = 1, CFA_FLAC = 2, CFA_VORBIS = 3 };
+enum { CFA_WAV = 1, CFA_FLAC = 2, CFA_VORBIS = 3, CFA_MP3 = 4 };
 
 /* Returns 0 or a negative miniaudio result. The input must stay valid until cfa_decoder_close. */
 CFA_API int32_t cfa_decoder_open(const void* data, size_t size, int32_t encoding, void** decoder, uint32_t* channels, uint32_t* sample_rate)
@@ -40,6 +39,7 @@ CFA_API int32_t cfa_decoder_open(const void* data, size_t size, int32_t encoding
         case CFA_WAV: config.encodingFormat = ma_encoding_format_wav; break;
         case CFA_FLAC: config.encodingFormat = ma_encoding_format_flac; break;
         case CFA_VORBIS: config.encodingFormat = ma_encoding_format_vorbis; break;
+        case CFA_MP3: config.encodingFormat = ma_encoding_format_mp3; break;
         default: return MA_INVALID_ARGS;
     }
     result = (ma_decoder*)malloc(sizeof(ma_decoder));

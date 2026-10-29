@@ -4,24 +4,26 @@ using System.Runtime.InteropServices;
 
 namespace CommonFury.Audio;
 
-/// <summary>Decodes WAV, FLAC and Ogg Vorbis with the bundled native miniaudio library; instances are stateless and can be shared across threads.</summary>
+/// <summary>Decodes WAV, FLAC, MP3 and Ogg Vorbis with the bundled native miniaudio library; instances are stateless and can be shared across threads.</summary>
 /// <remarks>
-/// WAV covers PCM, IEEE float, A-law, µ-law and ADPCM encodings. Other formats (MP3, AAC/M4A, WMA, Opus, AIFF) throw
-/// <see cref="NotSupportedException"/>; convert them to WAV, Ogg Vorbis or FLAC, or supply another <see cref="IAudioDecoder"/>.
-/// <c>maximumBytes</c> caps the encoded input and the decoded PCM16 output.
+/// WAV covers PCM, IEEE float, A-law, µ-law and ADPCM encodings. MP3 covers MPEG-1/2/2.5 Layer III, with or without
+/// ID3v2 tags, and decodes a run of as little as one frame; untagged input is not trimmed, so each frame yields its full
+/// sample count. Other formats (AAC/M4A, WMA, Opus, AIFF) throw <see cref="NotSupportedException"/>; convert them to
+/// WAV, MP3, Ogg Vorbis or FLAC, or supply another <see cref="IAudioDecoder"/>. <c>maximumBytes</c> caps the encoded
+/// input and the decoded PCM16 output.
 /// </remarks>
 public sealed partial class MiniaudioDecoder(int maximumBytes = 256 * 1024 * 1024) : IAudioDecoder
 {
     private const string Library = "commonfury_audio";
     private const int ChunkSamples = 65536;
-    private const string ConvertAdvice = "convert it to WAV, Ogg Vorbis or FLAC";
+    private const string ConvertAdvice = "convert it to WAV, MP3, Ogg Vorbis or FLAC";
 
-    private enum Encoding { Wav = 1, Flac = 2, Vorbis = 3 }
+    private enum Encoding { Wav = 1, Flac = 2, Vorbis = 3, Mp3 = 4 }
 
     public int MaximumBytes { get; } = maximumBytes > 0 ? maximumBytes : throw new ArgumentOutOfRangeException(nameof(maximumBytes));
 
     /// <inheritdoc/>
-    /// <exception cref="NotSupportedException">The format is not WAV, FLAC or Ogg Vorbis, or the channel conversion is unsupported.</exception>
+    /// <exception cref="NotSupportedException">The format is not WAV, FLAC, MP3 or Ogg Vorbis, or the channel conversion is unsupported.</exception>
     /// <exception cref="InvalidDataException">The input cannot be decoded, or the decoded audio exceeds <see cref="MaximumBytes"/>.</exception>
     public unsafe PcmAudio Decode(ReadOnlySpan<byte> data, string? format = null, int? sampleRate = null, int? channels = null)
     {
@@ -87,6 +89,7 @@ public sealed partial class MiniaudioDecoder(int maximumBytes = 256 * 1024 * 102
         "wav" or "wave" => Encoding.Wav,
         "flac" => Encoding.Flac,
         "ogg" or "oga" or "vorbis" => Encoding.Vorbis,
+        "mp3" => Encoding.Mp3,
         _ => throw new NotSupportedException($"Audio format '{format}' is not supported; {ConvertAdvice}."),
     };
 
@@ -98,8 +101,16 @@ public sealed partial class MiniaudioDecoder(int maximumBytes = 256 * 1024 * 102
             return Encoding.Flac;
         if (data.StartsWith("OggS"u8))
             return Encoding.Vorbis;
+        if (data.StartsWith("ID3"u8) || IsMpegLayer3Header(data))
+            return Encoding.Mp3;
         throw new NotSupportedException($"The audio format was not recognized; {ConvertAdvice}.");
     }
+
+    // Frame sync, a defined MPEG version, Layer III, and a bitrate and sample-rate index that are not reserved.
+    // ADTS AAC shares the sync but always has layer bits 00.
+    private static bool IsMpegLayer3Header(ReadOnlySpan<byte> data)
+        => data.Length >= 4 && data[0] == 0xff && (data[1] & 0xe0) == 0xe0 && (data[1] & 0x18) != 0x08 && (data[1] & 0x06) == 0x02
+            && (data[2] & 0xf0) != 0xf0 && (data[2] & 0x0c) != 0x0c;
 
     // The first Ogg page holds a single identification packet after a 27-byte header and its segment table.
     private static bool IsOpus(ReadOnlySpan<byte> data)
