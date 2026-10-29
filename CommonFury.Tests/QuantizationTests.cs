@@ -156,6 +156,55 @@ public sealed class QuantizationTests
         Assert.Equal(2, output[0].X, 5);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SkinningBatchMatchesPerVertexBlend(bool normalizeWeights)
+    {
+        // Zero, unnormalized and below-minimum weights; palette index 9 is out of range but only on unweighted lanes.
+        Vector3[] positions = [new(1, 2, 3), new(-4, 0.5f, 2), new(0.25f, -1, 7), new(3, 3, -3)];
+        Vector3[] normals = [Vector3.UnitX, new(0, 0.6f, 0.8f), Vector3.UnitZ, new(1, 1, 0)];
+        int[] indices = [0, 1, 2, 0, 1, 9, 9, 0, 9, 1, 1, 0, 2, 2, 0, 9, 9, 9, 9, 9];
+        float[] weights = [0.5f, 0, 1.25f, 0.125f, 0, 0, 0, 0.3f, 0, 0.6f, 3, 0, 0, 2, 0.7f, 0, 4e-9f, 0, 0, 0];
+        Matrix4x4[] matrices =
+        [
+            Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(1, 2, 3),
+            Matrix4x4.CreateScale(1.5f, 0.75f, 2) * Matrix4x4.CreateRotationX(-1.1f),
+            Matrix4x4.CreateRotationZ(2.3f) * Matrix4x4.CreateTranslation(-0.5f, 0, 4)
+        ];
+        var batch = new SkinningBatch(positions, indices, weights, 5, normals, normalizeWeights);
+        var skinnedPositions = new Vector3[4];
+        var skinnedNormals = new Vector3[4];
+        batch.Skin(matrices, skinnedPositions, skinnedNormals);
+        for (int vertex = 0; vertex < positions.Length; vertex++)
+        {
+            ReadOnlySpan<float> vertexWeights = weights.AsSpan(vertex * 5, 5);
+            if (SkinningMath.WeightSum(vertexWeights) <= SkinningMath.MinimumWeightSum)
+            {
+                Assert.Equal(positions[vertex], skinnedPositions[vertex]);
+                Assert.Equal(normals[vertex], skinnedNormals[vertex]);
+                continue;
+            }
+            Matrix4x4 transform = SkinningMath.Blend(vertexWeights, indices.AsSpan(vertex * 5, 5), matrices, normalizeWeights);
+            Vector3 normal = Vector3.TransformNormal(normals[vertex], transform);
+            Assert.Equal(Vector3.Transform(positions[vertex], transform), skinnedPositions[vertex]);
+            Assert.Equal(normal / normal.Length(), skinnedNormals[vertex]);
+        }
+    }
+
+    [Fact]
+    public void SkinningRejectsWeightedOutOfRangeIndicesBeforeWriting()
+    {
+        var batch = new SkinningBatch([Vector3.One, Vector3.UnitY], [0, 5, 3, 1], [1, 0, 0.5f, 0.5f], 2);
+        var output = new Vector3[2];
+        Matrix4x4[] matrices = [Matrix4x4.CreateTranslation(1, 0, 0), Matrix4x4.Identity, Matrix4x4.Identity];
+        Assert.Equal("matrices", Assert.Throws<ArgumentException>(() => batch.Skin(matrices, output)).ParamName);
+        Assert.All(output, value => Assert.Equal(Vector3.Zero, value));
+        batch.Skin([.. matrices, Matrix4x4.Identity], output);
+        Assert.Equal(new Vector3(2, 1, 1), output[0]);
+        Assert.Equal(Vector3.UnitY, output[1]);
+    }
+
     [Fact]
     public void WeightSumAtMinimumHasNoInfluence()
     {
