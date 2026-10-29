@@ -55,6 +55,25 @@ public sealed class ArchiveByteSourceTests
     }
 
     [Fact]
+    public void SliceStreamReadByteStopsAtTheRangeEndAndRequiresAnOpenSource()
+    {
+        var streamSource = ByteSource.FromStream(new MemoryStream(Data));
+        Stream range = streamSource.Open(60, 3);
+        Assert.Equal([60, 61, 62], new[] { range.ReadByte(), range.ReadByte(), range.ReadByte() });
+        Assert.Equal(-1, range.ReadByte());
+        Assert.Equal(-1, range.ReadByte());
+        Assert.Equal(3, range.Position);
+        range.Position = 1;
+        Assert.Equal(61, range.ReadByte());
+        Assert.Equal(-1, ByteSource.FromMemory(Data).Open(64, 0).ReadByte());
+        streamSource.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => range.ReadByte());
+        Stream disposed = ByteSource.FromMemory(Data).Open(0, 4);
+        disposed.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => disposed.ReadByte());
+    }
+
+    [Fact]
     public void DisposalAndChangedFilesInvalidateReads()
     {
         string path = Path.Combine(Path.GetTempPath(), "commonfury-source-" + Guid.NewGuid().ToString("N") + ".bin");
