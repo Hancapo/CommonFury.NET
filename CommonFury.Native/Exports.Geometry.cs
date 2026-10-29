@@ -167,11 +167,7 @@ internal static unsafe partial class Exports
             Span<float> output = Abi.Output(values, checked(count * 4));
             CheckStride(stride, elementSize, count, input.Length);
             ByteOrder order = bigEndian != 0 ? ByteOrder.Big : ByteOrder.Little;
-            for (int i = 0; i < (int)count; i++)
-            {
-                Vector4 value = VertexElementCodec.Read(input.Slice(i * (int)stride, elementSize), format, order);
-                value.CopyTo(output[(i * 4)..]);
-            }
+            VertexElementCodec.Read(input, VertexStride(stride), format, MemoryMarshal.Cast<float, Vector4>(output), order);
             return Abi.Success();
         }
         catch (Exception error) { return Abi.Fail(error); }
@@ -187,8 +183,7 @@ internal static unsafe partial class Exports
             Span<float> input = Abi.Output(values, checked(count * 4));
             Span<byte> output = Abi.Output(data, length);
             CheckStride(stride, elementSize, count, output.Length);
-            for (int i = 0; i < (int)count; i++)
-                VertexElementCodec.Write(output.Slice(i * (int)stride, elementSize), format, new Vector4(input.Slice(i * 4, 4)));
+            VertexElementCodec.Write(output, VertexStride(stride), format, MemoryMarshal.Cast<float, Vector4>(input));
             return Abi.Success();
         }
         catch (Exception error) { return Abi.Fail(error); }
@@ -323,4 +318,7 @@ internal static unsafe partial class Exports
         if (count != 0 && (ulong)length < (count - 1) * stride + (ulong)elementSize)
             throw new ArgumentException("Vertex buffer is too small for the requested elements.");
     }
+
+    // After CheckStride, a stride past int range is only possible with at most one element, which never steps by it.
+    private static int VertexStride(uint stride) => (int)Math.Min(stride, int.MaxValue);
 }
