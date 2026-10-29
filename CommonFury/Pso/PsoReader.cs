@@ -37,10 +37,18 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
         }
         ReadOnlySpan<byte> data = file.Slice(pointer, schema.Length);
         nodes.Add((hash, pointer), node);
-        var fields = new List<PsoField>();
+        IReadOnlyList<PsoEntry> entries = schema.Entries;
+        int fieldCount = 0;
+        for (int i = 0; i < entries.Count; i++)
+            if (!entries[i].IsAnonymous)
+                fieldCount++;
+        // Every non-anonymous entry yields exactly one field, so the array is filled completely.
+        var fields = new PsoField[fieldCount];
+        int next = 0;
         PsoEntry? arrayInfo = null;
-        foreach (PsoEntry entry in schema.Entries)
+        for (int i = 0; i < entries.Count; i++)
         {
+            PsoEntry entry = entries[i];
             if (entry.IsAnonymous)
             { arrayInfo = entry; continue; }
             PsoValue value;
@@ -59,9 +67,9 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
                     value = new PsoMalformed(entry, error.Message);
                 }
             }
-            fields.Add(new(entry, value));
+            fields[next++] = new(entry, value);
         }
-        node.CompleteWith(fields.ToArray());
+        node.CompleteWith(fields);
         return node;
     }
 

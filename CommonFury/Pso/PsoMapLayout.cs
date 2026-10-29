@@ -18,10 +18,22 @@ internal static class PsoMapLayout
     internal static PsoStruct Pair(PsoSchema schema, PsoStruct owner, PsoEntry entry, uint hash)
     {
         var (key, item) = Descriptors(owner, entry);
-        BinaryLayout.Require(schema.ByHash.GetValueOrDefault(hash) is PsoStruct, "Binary map pair schema is missing.");
-        var pair = (PsoStruct)schema.ByHash[hash];
-        var fields = pair.Entries.Where(value => !value.IsAnonymous).ToArray();
-        BinaryLayout.Require(pair.Length > 0 && fields.Length == 2 && Equivalent(fields[0], key) && Equivalent(fields[1], item),
+        if (schema.ByHash.GetValueOrDefault(hash) is not PsoStruct pair)
+            throw new InvalidDataException("Binary map pair schema is missing.");
+        PsoEntry first = default, second = default;
+        int count = 0;
+        for (int i = 0; i < pair.Entries.Count && count <= 2; i++)
+        {
+            PsoEntry value = pair.Entries[i];
+            if (value.IsAnonymous)
+                continue;
+            if (count == 0)
+                first = value;
+            else
+                second = value;
+            count++;
+        }
+        BinaryLayout.Require(pair.Length > 0 && count == 2 && Equivalent(first, key) && Equivalent(second, item),
             "Binary map pair schema disagrees with its key/item descriptors.");
         return pair;
     }

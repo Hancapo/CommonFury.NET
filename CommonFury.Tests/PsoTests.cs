@@ -110,6 +110,58 @@ public sealed class PsoTests : IDisposable
     }
 
     [Fact]
+    public void PointerPatchErrorsAreReportedInPatchOrder()
+    {
+        var schema = new PsoSchema([new PsoStruct(0x1234, 8, [new(0x99, PsoDataType.Structure, 3, 0, 0)])]);
+        var root = new PsoBlockBuilder(0x1234);
+        root.Append(new byte[16]);
+        var other = new PsoBlockBuilder(0x1234);
+        other.Append(new byte[8]);
+        var stray = new PsoBlockBuilder(0x1234);
+        var builder = new PsoBuilder(schema) { Root = root };
+        builder.Blocks.AddRange([root, other]);
+        // Equal offsets in different blocks and starts four bytes apart do not overlap.
+        builder.PointerPatches.AddRange([new(root, 4, other, 0), new(other, 4, root, 0), new(root, 0, root, 0), new(root, 12, root, 0)]);
+        Assert.True(builder.Build().ValidateChecksum().IsValid);
+        builder.PointerPatches.AddRange([new(root, 10, root, 0), new(stray, 0, root, 0)]);
+        Assert.Equal("Overlapping pointer patches.", Assert.Throws<InvalidOperationException>(() => builder.Build()).Message);
+        builder.PointerPatches.Insert(4, new(root, 13, root, 0));
+        Assert.Equal("Pointer patch is outside its block.", Assert.Throws<InvalidOperationException>(() => builder.Build()).Message);
+
+        var page = new PsoBlockBuilder(0x1234);
+        page.Append(new byte[0x1010]);
+        var wide = new PsoBuilder(schema) { Root = page, PointerLayout = PsoPointerLayout.BlockId20 };
+        wide.Blocks.Add(page);
+        wide.PointerPatches.AddRange([new(page, 0, page, 0), new(page, 2, page, 0), new(page, 8, page, 0x1000)]);
+        Assert.Equal("Overlapping pointer patches.", Assert.Throws<InvalidOperationException>(() => wide.Build()).Message);
+        wide.PointerPatches.RemoveAt(1);
+        wide.PointerPatches.Add(new(page, 10, page, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => wide.Build());
+    }
+
+    [Fact]
+    public void ChecksumValidationReportsSizeAndValueSeparately()
+    {
+        var schema = new PsoSchema([new PsoStruct(0x1234, 4, [new(0x99, PsoDataType.UInt32, 0, 0, 0)])]);
+        var root = new PsoBlockBuilder(0x1234);
+        root.Append([1, 2, 3, 4]);
+        var builder = new PsoBuilder(schema) { Root = root };
+        builder.Blocks.Add(root);
+        builder.AdditionalSections.Add(new PsoSection([0x5A, 0x5A, 0x5A, 0x5A, 0, 0, 0, 9, 7]));
+        byte[] bytes = builder.Build().Write();
+        Assert.Equal([PsoDiagnosticCodes.ChecksumSize],
+            PsoFile.Read(Patch(bytes, bytes.Length - 12, 1)).ValidateChecksum().Diagnostics.Select(d => d.Code));
+        Assert.Equal([PsoDiagnosticCodes.ChecksumMismatch],
+            PsoFile.Read(Patch(bytes, bytes.Length - 8, 1)).ValidateChecksum().Diagnostics.Select(d => d.Code));
+        Assert.Equal([PsoDiagnosticCodes.ChecksumMismatch],
+            PsoFile.Read(Patch(bytes, 16, 0x05060708)).ValidateChecksum().Diagnostics.Select(d => d.Code));
+        // The payload byte of the section before CHKS.
+        byte[] changed = (byte[])bytes.Clone();
+        changed[^21] ^= 1;
+        Assert.Equal([PsoDiagnosticCodes.ChecksumMismatch], PsoFile.Read(changed).ValidateChecksum().Diagnostics.Select(d => d.Code));
+    }
+
+    [Fact]
     public void BlockPaddingFillsAlignmentGaps()
     {
         var schema = new PsoSchema([new PsoStruct(0x1234, 4, [new(0x99, PsoDataType.UInt32, 0, 0, 0)])]);

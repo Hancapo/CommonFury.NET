@@ -95,18 +95,23 @@ public sealed class PsoFile
     public static bool IsPso(ReadOnlySpan<byte> data) => data.Length >= 4 && data[..4].SequenceEqual("PSIN"u8);
 
     /// <summary>Reads the section sequence and the PMAP and PSCH sections; copies the input.</summary>
-    public static PsoFile Read(ReadOnlySpan<byte> data, PsoFileOptions? options = null)
+    public static PsoFile Read(ReadOnlySpan<byte> data, PsoFileOptions? options = null) => Read(data, null, options);
+
+    // Takes ownership of data, which then backs the sections instead of being copied; nothing else may retain or change it.
+    internal static PsoFile ReadOwned(byte[] data, PsoFileOptions options) => Read(data, data, options);
+
+    private static PsoFile Read(ReadOnlySpan<byte> data, byte[]? owner, PsoFileOptions? options)
     {
         BinaryLayout.Require(IsPso(data), "Expected PSIN at the beginning of a PSO file.");
         var sections = new List<PsoSection>();
-        while (!data.IsEmpty)
+        for (int offset = 0; offset != data.Length;)
         {
-            var header = new BinarySpanReader(data, ByteOrder.Big);
+            var header = new BinarySpanReader(data[offset..], ByteOrder.Big);
             header.ReadUInt32();
             uint size = header.ReadUInt32();
-            BinaryLayout.Require(size >= 8 && size <= data.Length, "Invalid PSO section size or trailing bytes.");
-            sections.Add(new(data[..(int)size]));
-            data = data[(int)size..];
+            BinaryLayout.Require(size >= 8 && size <= data.Length - offset, "Invalid PSO section size or trailing bytes.");
+            sections.Add(owner is null ? new(data.Slice(offset, (int)size)) : new(new ArraySegment<byte>(owner, offset, (int)size)));
+            offset += (int)size;
         }
         return new(sections, options ?? new());
     }
@@ -148,13 +153,24 @@ public sealed class PsoFile
             diagnostics.Add(new Diagnostic(PsoDiagnosticCodes.ChecksumLayout, "Checksum validation requires one terminal 20-byte CHKS section."));
             return new ValidationReport(diagnostics);
         }
-        byte[] bytes = Write();
-        var reader = new BinarySpanReader(bytes.AsSpan(bytes.Length - 12), ByteOrder.Big);
+        // The checksum covers the whole file with the recorded size and checksum zeroed, so the sections are hashed in turn
+        // and only CHKS is copied.
+        Span<byte> chks = stackalloc byte[20];
+        checks[0].Data.CopyTo(chks);
+        var reader = new BinarySpanReader(chks[8..], ByteOrder.Big);
         uint length = reader.ReadUInt32(), expected = reader.ReadUInt32();
-        bytes.AsSpan(bytes.Length - 12, 8).Clear();
-        if (length != bytes.Length)
+        chks.Slice(8, 8).Clear();
+        uint state = Jenkins.PsoChecksumSeed;
+        int size = chks.Length;
+        for (int i = 0; i < Sections.Count - 1; i++)
+        {
+            state = Jenkins.ContinuePsoChecksum(state, Sections[i].Data);
+            size = checked(size + Sections[i].Data.Length);
+        }
+        state = Jenkins.ContinuePsoChecksum(state, chks);
+        if (length != size)
             diagnostics.Add(new Diagnostic(PsoDiagnosticCodes.ChecksumSize, "Recorded file size does not match."));
-        if (expected != Jenkins.PsoChecksum(bytes))
+        if (expected != Jenkins.Finalize(state))
             diagnostics.Add(new Diagnostic(PsoDiagnosticCodes.ChecksumMismatch, "PSO checksum does not match."));
         return new ValidationReport(diagnostics);
     }

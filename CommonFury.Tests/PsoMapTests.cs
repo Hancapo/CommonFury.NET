@@ -86,6 +86,16 @@ public sealed class PsoMapTests
         var pair = PsoNode.Create(Pair, [new(KeyEntry with { DataType = PsoDataType.Float }, new PsoFloat(42)), new(ItemEntry, PsoNull.Instance)]);
         var root = PsoNode.Create(Root, [new(MapEntry, new PsoMap(Pair, [pair]))]);
         Assert.Throws<InvalidDataException>(() => PsoFile.FromGraph(wrong, root));
+
+        PsoEntry extra = KeyEntry with { NameHash = 0xABC01006, DataOffset = 4 };
+        var wide = new PsoSchema([
+            new PsoStruct(Root, 32, [KeyEntry with { NameHash = 0x100 }, ItemEntry with { NameHash = 0x101 }, MapEntry]),
+            new PsoStruct(Pair, 16, [KeyEntry, ItemEntry, extra])
+        ]);
+        pair = PsoNode.Create(Pair, [new(KeyEntry, new PsoInteger(42)), new(ItemEntry, PsoNull.Instance), new(extra, new PsoInteger(0))]);
+        root = PsoNode.Create(Root, [new(MapEntry, new PsoMap(Pair, [pair]))]);
+        Assert.Equal("Binary map pair schema disagrees with its key/item descriptors.",
+            Assert.Throws<InvalidDataException>(() => PsoFile.FromGraph(wide, root)).Message);
     }
 
     [Fact]

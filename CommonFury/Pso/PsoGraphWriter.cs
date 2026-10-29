@@ -11,6 +11,7 @@ namespace CommonFury.Pso;
 /// </summary>
 public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = PsoPointerLayout.BlockId12)
 {
+    private static readonly byte[] Zeros = new byte[16];
     private readonly bool wide = layout == PsoPointerLayout.BlockId20;
     private readonly List<BlockPlan> blockOrder = [];
     private readonly HashSet<BlockPlan> pagedTargets = new(ReferenceEqualityComparer.Instance);
@@ -20,6 +21,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
     private readonly List<NodePlan> pointerTargets = [];
     private readonly Dictionary<uint, BlockPlan> blocks = [];
     private readonly Dictionary<PsoNode, Location> locations = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<PsoStruct, bool> distinctFields = new(ReferenceEqualityComparer.Instance);
     private bool started;
 
     /// <summary>Configure framing and extra sections here before calling <see cref="Write"/>.</summary>
@@ -54,7 +56,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                 else if (field.Value is PsoMap map && field.Entry.DataType == PsoDataType.Map)
                 {
                     WriteCount(owner.Add(field.Entry.DataOffset), map.Sorted ? 1 : 0, 1);
-                    WriteArray(owner, PsoMapLayout.Array(field.Entry), PsoMapLayout.Element(map.PairTypeHash), PsoMapLayout.Values(map));
+                    WriteArray(owner, PsoMapLayout.Array(field.Entry), PsoMapLayout.Element(map.PairTypeHash), field.Pairs!);
                 }
                 else
                     WriteValue(field.Entry, field.Value, owner.Add(field.Entry.DataOffset), false);
@@ -65,11 +67,13 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                 throw new NotSupportedException("A 20-bit PSO pointer into a block longer than 4 KiB must target the block start.");
         foreach (BlockPlan block in blockOrder)
         {
+            block.Builder.Reserve(block.Length);
             foreach (Region region in block.Regions)
             {
+                // Regions are at most 16-byte aligned, so the gap before one is shorter than Zeros.
                 int padding = region.Offset - block.Builder.Data.Length;
                 if (padding != 0)
-                    block.Builder.Append(new byte[padding]);
+                    block.Builder.Append(Zeros.AsSpan(0, padding));
                 block.Builder.Append(region.Data);
             }
         }
@@ -93,28 +97,42 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
 
     private void Discover(NodePlan plan)
     {
-        var fields = new Dictionary<PsoEntry, PsoValue>();
-        foreach (PsoField field in plan.Node.Fields)
+        IReadOnlyList<PsoField> nodeFields = plan.Node.Fields;
+        Dictionary<PsoEntry, PsoValue>? fields = null;
+        if (!FieldsFollowSchema(plan))
         {
-            Require(field is not null && field.Value is not null, "PSO fields cannot be null.");
-            Require(fields.TryAdd(field.Entry, field.Value), "Duplicate PSO field.");
+            fields = [];
+            foreach (PsoField field in nodeFields)
+            {
+                Require(field is not null && field.Value is not null, "PSO fields cannot be null.");
+                Require(fields.TryAdd(field.Entry, field.Value), "Duplicate PSO field.");
+            }
         }
         PsoEntry? element = null;
-        foreach (PsoEntry entry in plan.Schema.Entries)
+        int next = 0;
+        IReadOnlyList<PsoEntry> entries = plan.Schema.Entries;
+        for (int i = 0; i < entries.Count; i++)
         {
+            PsoEntry entry = entries[i];
             if (entry.IsAnonymous)
             { element = entry; continue; }
-            Require(fields.Remove(entry, out PsoValue? value), $"PSO field 0x{entry.NameHash:X8} is missing or has mismatched metadata.");
+            PsoValue? value;
+            if (fields is null)
+                value = nodeFields[next++].Value;
+            else if (!fields.Remove(entry, out value))
+                throw new InvalidDataException($"PSO field 0x{entry.NameHash:X8} is missing or has mismatched metadata.");
             int storage;
+            PsoArray? pairs = null;
             if (entry.DataType == PsoDataType.Map)
             {
-                PsoMap map = Value<PsoMap>(value!, entry);
+                PsoMap map = Value<PsoMap>(value, entry);
                 PsoMapLayout.Descriptors(plan.Schema, entry);
                 storage = PsoLayout.MapStorageSize;
+                pairs = PsoMapLayout.Values(map);
                 if (map.Entries.Count != 0 || map.PairTypeHash != 0)
                 {
                     var pair = PsoMapLayout.Pair(Builder.Schema, plan.Schema, entry, map.PairTypeHash);
-                    DiscoverArray(plan, PsoMapLayout.Array(entry), PsoMapLayout.Element(map.PairTypeHash), PsoMapLayout.Values(map), pair.Length);
+                    DiscoverArray(plan, PsoMapLayout.Array(entry), PsoMapLayout.Element(map.PairTypeHash), pairs, pair.Length);
                 }
             }
             else if (entry.DataType == PsoDataType.Array)
@@ -133,14 +151,46 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                 storage = Builder.Schema.ElementStride(entry);
                 bool emptyStructure = entry.DataType == PsoDataType.Structure && entry.Subtype == 0 &&
                     Builder.Schema.ByHash.GetValueOrDefault(entry.ReferenceKey) is PsoStruct { Length: 0 };
-                Require(storage > 0 || emptyStructure || entry.DataType == PsoDataType.String && entry.Subtype == 0 && Value<PsoText>(value!, entry).Bytes.IsEmpty,
-                    $"Unsupported PSO field layout for 0x{entry.NameHash:X8}.");
+                if (!(storage > 0 || emptyStructure || entry.DataType == PsoDataType.String && entry.Subtype == 0 && Value<PsoText>(value!, entry).Bytes.IsEmpty))
+                    throw new InvalidDataException($"Unsupported PSO field layout for 0x{entry.NameHash:X8}.");
                 DiscoverValue(plan, entry, value!, entry.DataOffset, false);
             }
             Require(entry.DataOffset <= plan.Schema.Length - storage, "PSO field storage exceeds its containing structure.");
-            plan.Fields.Add(new(entry, value!, entry.DataType == PsoDataType.Array ? element : null));
+            plan.Fields.Add(new(entry, value!, entry.DataType == PsoDataType.Array ? element : null, pairs));
         }
-        Require(fields.Count == 0, "PSO node contains fields absent from its schema.");
+        Require(fields is null || fields.Count == 0, "PSO node contains fields absent from its schema.");
+    }
+
+    // Taking the fields by position yields the same values and errors as matching them by entry when each field is non-null
+    // and equals the next non-anonymous schema entry, and those entries are distinct.
+    private bool FieldsFollowSchema(NodePlan plan)
+    {
+        IReadOnlyList<PsoField> fields = plan.Node.Fields;
+        IReadOnlyList<PsoEntry> entries = plan.Schema.Entries;
+        int next = 0;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            PsoEntry entry = entries[i];
+            if (entry.IsAnonymous)
+                continue;
+            if (next == fields.Count || fields[next] is not { Value: not null } field || field.Entry != entry)
+                return false;
+            next++;
+        }
+        return next == fields.Count && HasDistinctFields(plan.Schema);
+    }
+
+    private bool HasDistinctFields(PsoStruct schema)
+    {
+        if (!distinctFields.TryGetValue(schema, out bool distinct))
+        {
+            var seen = new HashSet<PsoEntry>();
+            distinct = true;
+            foreach (PsoEntry entry in schema.Entries)
+                distinct &= entry.IsAnonymous || seen.Add(entry);
+            distinctFields.Add(schema, distinct);
+        }
+        return distinct;
     }
 
     private void DiscoverArray(NodePlan owner, PsoEntry entry, PsoEntry element, PsoArray array, int stride)
@@ -525,8 +575,9 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         internal int InlineParents { get; set; }
     }
 
-    private sealed record FieldPlan(PsoEntry Entry, PsoValue Value, PsoEntry? Element);
-    private sealed record Relation(NodePlan Node, int Offset);
+    // Pairs holds a map's entries as array values, built once for discovery and writing.
+    private readonly record struct FieldPlan(PsoEntry Entry, PsoValue Value, PsoEntry? Element, PsoArray? Pairs);
+    private readonly record struct Relation(NodePlan Node, int Offset);
 
     private sealed class BlockPlan(PsoBlockBuilder builder)
     {
