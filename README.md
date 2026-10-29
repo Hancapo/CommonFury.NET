@@ -41,8 +41,8 @@ the library. See [CommonFury.Native/README.md](CommonFury.Native/README.md).
 
 ## Audio decoder
 
-`CommonFury.Miniaudio` adds `MiniaudioDecoder`, an `IAudioDecoder` for WAV, FLAC and Ogg Vorbis backed by a native
-miniaudio build (`commonfury_audio.dll`, 351 KB on win-x64). The core library stays fully managed. On Windows x64 the
+`CommonFury.Miniaudio` adds `MiniaudioDecoder`, an `IAudioDecoder` for WAV, FLAC, MP3 and Ogg Vorbis backed by a native
+miniaudio build (`commonfury_audio.dll`, 385 KB on win-x64). The core library stays fully managed. On Windows x64 the
 project builds the DLL with CMake and the Visual Studio C++ tools; see
 [CommonFury.Miniaudio/native/THIRD_PARTY.md](CommonFury.Miniaudio/native/THIRD_PARTY.md) for sources, licenses and other
 platforms.
