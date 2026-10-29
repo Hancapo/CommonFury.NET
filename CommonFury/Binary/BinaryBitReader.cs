@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace CommonFury.Binary;
 
 /// <summary>Bounded least-significant-bit-first reader over borrowed input.</summary>
@@ -33,6 +35,13 @@ public ref struct BinaryBitReader
             throw new ArgumentOutOfRangeException(nameof(bitCount));
         if (position < 0 || position > Length - bitCount)
             throw new InvalidDataException("Bit field exceeds the bounded input.");
+        long start = position >> 3;
+        if (start <= data.Length - 8)
+        {
+            // A field spans at most 39 bits from its first byte, so one 64-bit load covers it.
+            ulong word = BinaryPrimitives.ReadUInt64LittleEndian(data[(int)start..]);
+            return (uint)((word >> (int)(position & 7)) & ((1ul << bitCount) - 1));
+        }
         uint result = 0;
         int shift = 0;
         while (bitCount > 0)

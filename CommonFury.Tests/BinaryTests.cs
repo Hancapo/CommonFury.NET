@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using CommonFury.Binary;
 using Xunit;
 
@@ -57,6 +59,149 @@ public sealed class BinaryTests
         Assert.Equal(2, BinaryLayout.Slice(new byte[4], 2, 2).Length);
         Assert.Throws<InvalidDataException>(() => BinaryLayout.Slice(new byte[4], 3, 2));
         Assert.Throws<InvalidDataException>(() => BinaryLayout.Require(false, "broken"));
+    }
+
+    [Fact]
+    public void LayoutErrorsNameTheRejectedRange()
+    {
+        Assert.Equal("Binary range 3+2 exceeds 4 bytes.",
+            Assert.Throws<InvalidDataException>(() => BinaryLayout.Slice(new byte[4], 3, 2)).Message);
+        Assert.Equal("Binary range -1+0 exceeds 4 bytes.",
+            Assert.Throws<InvalidDataException>(() => BinaryLayout.Slice(new byte[4], -1, 0)).Message);
+        Assert.Equal("Binary range 11+10 lies outside its 20-byte allocation.",
+            Assert.Throws<InvalidDataException>(() => BinaryLayout.RequireRange(11, 10, 20)).Message);
+        Assert.Equal("broken", Assert.Throws<InvalidDataException>(() => BinaryLayout.Require(false, "broken")).Message);
+        BinaryLayout.Require(true, "unused");
+    }
+
+    [Fact]
+    public void StridedArraysMatchIndependentDecodingForEverySize()
+    {
+        var random = new Random(11);
+        foreach (ByteOrder order in Enum.GetValues<ByteOrder>())
+        {
+            bool big = order == ByteOrder.Big;
+            foreach (int extra in new[] { 1, 3, 8 })
+            {
+                CheckStrided<byte>(1, extra, order, random, b => b[0]);
+                CheckStrided<sbyte>(1, extra, order, random, b => unchecked((sbyte)b[0]));
+                CheckStrided<short>(2, extra, order, random, b => big ? BinaryPrimitives.ReadInt16BigEndian(b) : BinaryPrimitives.ReadInt16LittleEndian(b));
+                CheckStrided<ushort>(2, extra, order, random, b => big ? BinaryPrimitives.ReadUInt16BigEndian(b) : BinaryPrimitives.ReadUInt16LittleEndian(b));
+                CheckStrided<Half>(2, extra, order, random, b => BitConverter.UInt16BitsToHalf(big ? BinaryPrimitives.ReadUInt16BigEndian(b) : BinaryPrimitives.ReadUInt16LittleEndian(b)));
+                CheckStrided<int>(4, extra, order, random, b => big ? BinaryPrimitives.ReadInt32BigEndian(b) : BinaryPrimitives.ReadInt32LittleEndian(b));
+                CheckStrided<uint>(4, extra, order, random, b => big ? BinaryPrimitives.ReadUInt32BigEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b));
+                CheckStrided<float>(4, extra, order, random, b => BitConverter.UInt32BitsToSingle(big ? BinaryPrimitives.ReadUInt32BigEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b)));
+                CheckStrided<long>(8, extra, order, random, b => big ? BinaryPrimitives.ReadInt64BigEndian(b) : BinaryPrimitives.ReadInt64LittleEndian(b));
+                CheckStrided<ulong>(8, extra, order, random, b => big ? BinaryPrimitives.ReadUInt64BigEndian(b) : BinaryPrimitives.ReadUInt64LittleEndian(b));
+                CheckStrided<double>(8, extra, order, random, b => BitConverter.UInt64BitsToDouble(big ? BinaryPrimitives.ReadUInt64BigEndian(b) : BinaryPrimitives.ReadUInt64LittleEndian(b)));
+            }
+        }
+    }
+
+    private static void CheckStrided<T>(int size, int extra, ByteOrder order, Random random, Func<byte[], T> decode) where T : unmanaged
+    {
+        int stride = size + extra, count = 5;
+        // One leading byte keeps elements unaligned; the last element ends exactly at the input end.
+        var data = new byte[1 + (count - 1) * stride + size];
+        random.NextBytes(data);
+        var output = new T[count];
+        BinaryArrays.Read(data.AsSpan(1), output.AsSpan(), order, stride);
+        for (int i = 0; i < count; i++)
+        {
+            T expected = decode(data[(1 + i * stride)..(1 + i * stride + size)]);
+            Assert.True(MemoryMarshal.AsBytes(new[] { expected }.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(output.AsSpan(i, 1))),
+                $"{typeof(T).Name} element {i} with stride {stride} in {order} order.");
+        }
+        Assert.Throws<InvalidDataException>(() => BinaryArrays.Read(data.AsSpan(1, data.Length - 2), output.AsSpan(), order, stride));
+        BinaryArrays.Read(data.AsSpan(1), Span<T>.Empty, order, stride);
+    }
+
+    [Fact]
+    public void LsbBitReaderMatchesBitByBitDecodingAtEveryOffsetAndWidth()
+    {
+        var data = new byte[13];
+        new Random(3).NextBytes(data);
+        var reader = new BinaryBitReader(data);
+        for (int width = 0; width <= 32; width++)
+        {
+            for (long position = 0; position <= reader.Length - width; position++)
+            {
+                uint expected = 0;
+                for (int i = 0; i < width; i++)
+                    expected |= (uint)((data[(position + i) >> 3] >> (int)((position + i) & 7)) & 1) << i;
+                Assert.Equal(expected, reader.ReadUInt32At(position, width));
+                reader.Seek(position);
+                Assert.Equal(expected, reader.ReadUInt32(width));
+                Assert.Equal(position + width, reader.Position);
+            }
+            long past = reader.Length - width + 1;
+            Assert.Throws<InvalidDataException>(() => new BinaryBitReader(data).ReadUInt32At(past, width));
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BinaryBitReader(data).ReadUInt32At(0, 33));
+    }
+
+    [Fact]
+    public void MsbBitReaderMatchesBitByBitDecodingAtEveryOffsetAndWidth()
+    {
+        var data = new byte[13];
+        new Random(4).NextBytes(data);
+        for (int width = 0; width <= 32; width++)
+        {
+            for (int position = 0; position <= data.Length * 8 - width; position++)
+            {
+                uint expected = 0;
+                for (int i = position; i < position + width; i++)
+                    expected = expected << 1 | (uint)((data[i >> 3] >> (7 - (i & 7))) & 1);
+                // Starting the input at the field's first byte keeps its distance from the end unchanged.
+                var reader = new MsbBitReader(data.AsSpan(position >> 3));
+                reader.ReadUInt32(position & 7);
+                Assert.Equal(expected, reader.ReadUInt32(width));
+                Assert.Equal((position & 7) + width, reader.Position);
+            }
+            if (width == 0)
+                continue;
+            Assert.Throws<InvalidDataException>(() =>
+            {
+                var reader = new MsbBitReader(data.AsSpan(data.Length - 4));
+                reader.ReadUInt32(33 - width);
+                reader.ReadUInt32(width);
+            });
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MsbBitReader(data).ReadUInt32(33));
+    }
+
+    [Fact]
+    public void LsbBitWriterMatchesBitByBitEncodingAtEveryOffsetAndWidth()
+    {
+        var random = new Random(6);
+        var dirty = new byte[13];
+        random.NextBytes(dirty);
+        for (int width = 0; width <= 32; width++)
+        {
+            for (long position = 0; position <= dirty.Length * 8L - width; position++)
+            {
+                uint value = width == 0 ? 0 : (uint)random.NextInt64(0, 1L << 32) >> (32 - width);
+                byte[] expected = (byte[])dirty.Clone();
+                for (int i = 0; i < width; i++)
+                {
+                    long bit = position + i;
+                    int mask = 1 << (int)(bit & 7);
+                    expected[bit >> 3] = (byte)(((value >> i) & 1) != 0 ? expected[bit >> 3] | mask : expected[bit >> 3] & ~mask);
+                }
+                byte[] actual = (byte[])dirty.Clone();
+                var writer = new BinaryBitWriter(actual);
+                writer.Seek(position);
+                writer.WriteUInt32(value, width);
+                Assert.Equal(expected, actual);
+                Assert.Equal(position + width, writer.Position);
+            }
+            if (width == 0)
+                continue;
+            long past = dirty.Length * 8L - width + 1;
+            byte[] untouched = (byte[])dirty.Clone();
+            Assert.Throws<ArgumentException>(() => { var w = new BinaryBitWriter(untouched); w.Seek(past); w.WriteUInt32(0, width); });
+            Assert.Equal(dirty, untouched);
+        }
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace CommonFury.Binary;
 
 /// <summary>Bounded most-significant-bit-first reader over borrowed input.</summary>
@@ -14,6 +16,14 @@ public ref struct MsbBitReader
             throw new ArgumentOutOfRangeException(nameof(width));
         if (width > Remaining)
             throw new InvalidDataException("Packed bit field exceeds the bounded input.");
+        long start = Position >> 3;
+        if (start <= data.Length - 8)
+        {
+            // Two right shifts of at most 32 bits each keep a zero width defined.
+            ulong word = BinaryPrimitives.ReadUInt64BigEndian(data[(int)start..]) << (int)(Position & 7);
+            Position += width;
+            return (uint)(word >> 32 >> (32 - width));
+        }
         uint value = 0;
         while (width != 0)
         {
