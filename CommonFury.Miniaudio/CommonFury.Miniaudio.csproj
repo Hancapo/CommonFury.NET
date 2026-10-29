@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CommonFury.Audio</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CommonFury/CommonFury.csproj" />
+  </ItemGroup>
+
+  <!-- Windows x64 builds the native decoder with CMake (MSVC) before compiling. Other platforms set BuildNativeAudio=false
+       and deploy a commonfury_audio library built from native/CMakeLists.txt. -->
+  <PropertyGroup>
+    <NativeAudioRid Condition="'$(NativeAudioRid)' == ''">$(RuntimeIdentifier)</NativeAudioRid>
+    <NativeAudioRid Condition="'$(NativeAudioRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeAudioRid>
+    <BuildNativeAudio Condition="'$(BuildNativeAudio)' == '' and '$(NativeAudioRid)' == 'win-x64'">true</BuildNativeAudio>
+    <NativeAudioBuildDirectory>$(MSBuildProjectDirectory)/obj/native/win-x64</NativeAudioBuildDirectory>
+    <NativeAudioLibrary Condition="'$(NativeAudioLibrary)' == ''">$(NativeAudioBuildDirectory)/MinSizeRel/commonfury_audio.dll</NativeAudioLibrary>
+    <VsWhere>$(MSBuildProgramFiles32)/Microsoft Visual Studio/Installer/vswhere.exe</VsWhere>
+  </PropertyGroup>
+  <ItemGroup>
+    <NativeAudioSource Include="native/CMakeLists.txt;native/*.c;$(MSBuildThisFileFullPath)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(NativeAudioRid)' == 'win-x64' and ('$(BuildNativeAudio)' == 'true' or Exists('$(NativeAudioLibrary)'))">
+    <None Include="$(NativeAudioLibrary)" Link="commonfury_audio.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native" />
+    <None Include="native/THIRD_PARTY.md;native/LICENSES/*" Link="licenses/commonfury_audio/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="licenses/commonfury_audio" />
+  </ItemGroup>
+
+  <Target Name="BuildNativeAudio" BeforeTargets="PrepareForBuild" DependsOnTargets="ResolveNativeAudioCMake"
+          Condition="'$(BuildNativeAudio)' == 'true'" Inputs="@(NativeAudioSource)" Outputs="$(NativeAudioLibrary)">
+    <Error Condition="'$(OS)' != 'Windows_NT' or '$(NativeAudioRid)' != 'win-x64'"
+           Text="The bundled native audio build supports Windows x64. Set BuildNativeAudio=false and deploy commonfury_audio for this platform." />
+    <Exec Command="&quot;$(NativeAudioCMake)&quot; -S &quot;$(MSBuildProjectDirectory)/native&quot; -B &quot;$(NativeAudioBuildDirectory)&quot; -G &quot;Visual Studio 17 2022&quot; -A x64" />
+    <Exec Command="&quot;$(NativeAudioCMake)&quot; --build &quot;$(NativeAudioBuildDirectory)&quot; --config MinSizeRel" />
+    <Error Condition="!Exists('$(NativeAudioLibrary)')" Text="The native audio build did not produce $(NativeAudioLibrary)." />
+  </Target>
+
+  <!-- Prefer the CMake that ships with the Visual Studio C++ tools; fall back to cmake on PATH. -->
+  <Target Name="ResolveNativeAudioCMake" Condition="'$(NativeAudioCMake)' == ''">
+    <Exec Condition="Exists('$(VsWhere)')" ConsoleToMSBuild="true" StandardOutputImportance="Low"
+          Command="&quot;$(VsWhere)&quot; -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath">
+      <Output TaskParameter="ConsoleOutput" PropertyName="NativeAudioVisualStudio" />
+    </Exec>
+    <PropertyGroup>
+      <NativeAudioBundledCMake>$(NativeAudioVisualStudio)/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe</NativeAudioBundledCMake>
+      <NativeAudioCMake Condition="Exists('$(NativeAudioBundledCMake)')">$(NativeAudioBundledCMake)</NativeAudioCMake>
+      <NativeAudioCMake Condition="'$(NativeAudioCMake)' == ''">cmake</NativeAudioCMake>
+    </PropertyGroup>
+  </Target>
+</Project>

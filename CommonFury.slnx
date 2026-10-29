@@ -2,4 +2,6 @@
   <Project Path="CommonFury/CommonFury.csproj" />
   <Project Path="CommonFury.Tests/CommonFury.Tests.csproj" />
   <Project Path="CommonFury.Native/CommonFury.Native.csproj" />
+  <Project Path="CommonFury.Miniaudio/CommonFury.Miniaudio.csproj" />
+  <Project Path="CommonFury.Miniaudio.Tests/CommonFury.Miniaudio.Tests.csproj" />
 </Solution>

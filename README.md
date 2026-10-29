@@ -3,7 +3,7 @@
 # CommonFury
 
 A .NET 10 library of building blocks for 3D and 2D asset work: binary I/O, hashing, compression, math and
-geometry, textures and pixel formats, vertex data and spatial hierarchies, plus readers and writers for RAGE
+geometry, textures and pixel formats, PCM audio, vertex data and spatial hierarchies, plus readers and writers for RAGE
 metadata formats such as PSO and RBF. Managed, AOT-compatible, with no native dependencies.
 
 Nothing here is tied to a particular game. Where formats vary between uses (pointer widths, name tables, limits,
@@ -20,6 +20,7 @@ codecs), the caller passes the choice in.
 | `CommonFury.Numerics` | `VectorMath`, `QuaternionMath`, `TransformMath`, `MatrixMath`, `SpanMath`, `Aabb2`, `Aabb3`, `Sphere3`, `Matrix3x4`, `Vector3D`, `Quantization`, `PackedVectors`, `BoundsQuantization`, `SkinningMath`, `SkinningBatch`, `JointFrameMath`, `CurveMath`, `IntegerGrid` | grid steps, bounds and bit widths; influence counts |
 | `CommonFury.Geometry` | `MeshMath`, `MeshPartitioning`, `PolygonMath`, `PlaneMath`, `HeightFieldMath`, `RasterMath`, `SpatialGrid2`, `ShapeGeometry`, `MassProperties` | vertex limits for splitting; up and fallback axes for plane fits |
 | `CommonFury.Compression` | `RawDeflate`, `CompressionCache` | output size limit; zero-history window when the format needs it |
+| `CommonFury.Audio` | `PcmAudio` (WAV read/write, mono/stereo conversion, resampling), `IAudioDecoder` | a decoder for compressed formats |
 | `CommonFury.Textures` | `TextureFormat(s)`, `TextureShape`, `TextureLayout`, `TextureSurface`, `DdsCodec`, `PixelCodec`, `Bc1`; `Numerics.PixelMath` | |
 | `CommonFury.Pso` | `PsoFile`, `PsoSchema`, `PsoBuilder`, `PsoGraphWriter`, typed `PsoValue`s, `PsoPointerLayout`, `IPsoNameResolver` | name resolver; pointer layout when not detected |
 | `CommonFury.Rbf` | `RbfDocument`, nodes, `RbfLimits`, `RbfDescriptor`, `RbfRecordType`, `RbfDiagnosticCodes` | |
@@ -37,6 +38,14 @@ codecs), the caller passes the choice in.
 
 `CommonFury.Native` publishes `commonfury_native.dll`, a Native AOT C ABI (1.7 MB on win-x64) over the data-in/data-out parts of
 the library. See [CommonFury.Native/README.md](CommonFury.Native/README.md).
+
+## Audio decoder
+
+`CommonFury.Miniaudio` adds `MiniaudioDecoder`, an `IAudioDecoder` for WAV, FLAC and Ogg Vorbis backed by a native
+miniaudio build (`commonfury_audio.dll`, 351 KB on win-x64). The core library stays fully managed. On Windows x64 the
+project builds the DLL with CMake and the Visual Studio C++ tools; see
+[CommonFury.Miniaudio/native/THIRD_PARTY.md](CommonFury.Miniaudio/native/THIRD_PARTY.md) for sources, licenses and other
+platforms.
 
 ## Build and test
 
