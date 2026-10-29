@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace CommonFury.Binary;
 
 /// <summary>Checks binary ranges and computes alignment for bounded readers and writers.</summary>
@@ -19,7 +21,7 @@ public static class BinaryLayout
     public static ReadOnlySpan<byte> Slice(ReadOnlySpan<byte> data, int offset, int length)
     {
         if (offset < 0 || length < 0 || offset > data.Length - length)
-            throw new InvalidDataException($"Binary range {offset}+{length} exceeds {data.Length} bytes.");
+            ThrowSliceOutside(offset, length, data.Length);
         return data.Slice(offset, length);
     }
 
@@ -27,13 +29,25 @@ public static class BinaryLayout
     public static void RequireRange(long offset, long length, long total)
     {
         if (offset < 0 || length < 0 || offset > total || length > total - offset)
-            throw new InvalidDataException($"Binary range {offset}+{length} lies outside its {total}-byte allocation.");
+            ThrowRangeOutside(offset, length, total);
     }
 
     /// <summary>Throws <see cref="InvalidDataException"/> with <paramref name="message"/> when <paramref name="condition"/> is false.</summary>
     public static void Require(bool condition, string message)
     {
         if (!condition)
-            throw new InvalidDataException(message);
+            ThrowInvalidData(message);
     }
+
+    // Separate throw methods keep the checks above small enough to inline.
+    [DoesNotReturn]
+    private static void ThrowSliceOutside(int offset, int length, int total) =>
+        throw new InvalidDataException($"Binary range {offset}+{length} exceeds {total} bytes.");
+
+    [DoesNotReturn]
+    private static void ThrowRangeOutside(long offset, long length, long total) =>
+        throw new InvalidDataException($"Binary range {offset}+{length} lies outside its {total}-byte allocation.");
+
+    [DoesNotReturn]
+    private static void ThrowInvalidData(string message) => throw new InvalidDataException(message);
 }

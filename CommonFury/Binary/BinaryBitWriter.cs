@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace CommonFury.Binary;
 
 /// <summary>Bounded least-significant-bit-first writer over borrowed storage. Writes replace existing bits.</summary>
@@ -24,6 +26,17 @@ public ref struct BinaryBitWriter
             throw new ArgumentOutOfRangeException(nameof(value), "Value exceeds the requested field width.");
         if (Position > Length - bitCount)
             throw new ArgumentException("Bit field exceeds the destination.");
+        long start = Position >> 3;
+        if (start <= data.Length - 8)
+        {
+            Span<byte> bytes = data[(int)start..];
+            int offset = (int)(Position & 7);
+            ulong mask = ((1ul << bitCount) - 1) << offset;
+            ulong word = BinaryPrimitives.ReadUInt64LittleEndian(bytes);
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes, (word & ~mask) | ((ulong)value << offset));
+            Position += bitCount;
+            return;
+        }
         int shift = 0;
         while (bitCount > 0)
         {

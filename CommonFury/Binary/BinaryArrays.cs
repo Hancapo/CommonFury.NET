@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace CommonFury.Binary;
 
@@ -17,13 +19,12 @@ public static class BinaryArrays
             throw new ArgumentOutOfRangeException(nameof(stride));
         int required = destination.IsEmpty ? 0 : checked((destination.Length - 1) * stride + size);
         BinaryLayout.Slice(data, 0, required);
-        if (data.Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(destination)))
+        if (data.Overlaps(MemoryMarshal.AsBytes(destination)))
             throw new ArgumentException("Input and output must not overlap.");
         if (stride == size)
             Endian.Decode(data, destination, byteOrder);
         else
-            for (int i = 0; i < destination.Length; i++)
-                Endian.Decode(data.Slice(i * stride, size), destination.Slice(i, 1), byteOrder);
+            ReadStrided(data, destination, stride, (byteOrder == ByteOrder.Little) != BitConverter.IsLittleEndian);
     }
 
     /// <summary>Input and output must not overlap.</summary>
@@ -32,9 +33,53 @@ public static class BinaryArrays
         ScalarSize<T>();
         if (byteOrder is not ByteOrder.Big and not ByteOrder.Little)
             throw new ArgumentOutOfRangeException(nameof(byteOrder));
-        if (destination.Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values)))
+        if (destination.Overlaps(MemoryMarshal.AsBytes(values)))
             throw new ArgumentException("Input and output must not overlap.");
         Endian.Encode(values, destination, byteOrder);
+    }
+
+    private static void ReadStrided<T>(ReadOnlySpan<byte> data, Span<T> destination, int stride, bool swap) where T : unmanaged
+    {
+        switch (Unsafe.SizeOf<T>())
+        {
+            case 1:
+            {
+                Span<byte> output = MemoryMarshal.AsBytes(destination);
+                for (int i = 0; i < output.Length; i++)
+                    output[i] = data[i * stride];
+                break;
+            }
+            case 2:
+            {
+                Span<ushort> output = MemoryMarshal.Cast<T, ushort>(destination);
+                for (int i = 0; i < output.Length; i++)
+                {
+                    ushort value = MemoryMarshal.Read<ushort>(data[(i * stride)..]);
+                    output[i] = swap ? BinaryPrimitives.ReverseEndianness(value) : value;
+                }
+                break;
+            }
+            case 4:
+            {
+                Span<uint> output = MemoryMarshal.Cast<T, uint>(destination);
+                for (int i = 0; i < output.Length; i++)
+                {
+                    uint value = MemoryMarshal.Read<uint>(data[(i * stride)..]);
+                    output[i] = swap ? BinaryPrimitives.ReverseEndianness(value) : value;
+                }
+                break;
+            }
+            default:
+            {
+                Span<ulong> output = MemoryMarshal.Cast<T, ulong>(destination);
+                for (int i = 0; i < output.Length; i++)
+                {
+                    ulong value = MemoryMarshal.Read<ulong>(data[(i * stride)..]);
+                    output[i] = swap ? BinaryPrimitives.ReverseEndianness(value) : value;
+                }
+                break;
+            }
+        }
     }
 
     private static int ScalarSize<T>() where T : unmanaged
