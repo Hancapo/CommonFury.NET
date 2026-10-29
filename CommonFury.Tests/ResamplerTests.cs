@@ -76,6 +76,41 @@ public sealed class ResamplerTests
             Assert.Equal(0, ReadInt16LittleEndian(stereo.Data[(i * 4 + 2)..]));
     }
 
+    [Fact]
+    public void ResamplesEachChannelAsIfItWereMono()
+    {
+        var random = new Random(7);
+        short[] interleaved = new short[3 * 1001];
+        for (int i = 0; i < interleaved.Length; i++)
+            interleaved[i] = (short)random.Next(short.MinValue, short.MaxValue + 1);
+        byte[] pcm = new byte[interleaved.Length * 2];
+        for (int i = 0; i < interleaved.Length; i++)
+            WriteInt16LittleEndian(pcm.AsSpan(i * 2), interleaved[i]);
+
+        PcmAudio audio = new(pcm, 22050, 3);
+        byte[][] resampled = audio.Convert(44100).SplitChannels();
+        byte[][] separately = [.. audio.SplitChannels().Select(c => new PcmAudio(c, 22050).Convert(44100).Data.ToArray())];
+        Assert.Equal(separately, resampled);
+    }
+
+    [Fact]
+    public void MixesDownBeforeAndDuplicatesAfterResampling()
+    {
+        float[] stereo = new float[2 * 999], mixed = new float[999];
+        for (int i = 0; i < mixed.Length; i++)
+        {
+            stereo[i * 2] = (float)Math.Sin(i * 0.05);
+            stereo[i * 2 + 1] = (float)Math.Cos(i * 0.03) * 0.7f;
+            mixed[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f;
+        }
+        PcmAudio mono = PcmAudio.FromFloat(mixed, 32000, targetSampleRate: 22050);
+        Assert.Equal(mono.Data.ToArray(), PcmAudio.FromFloat(stereo, 32000, 2, 22050, 1).Data.ToArray());
+
+        byte[][] duplicated = PcmAudio.FromFloat(mixed, 32000, 1, 22050, 2).SplitChannels();
+        Assert.Equal(mono.Data.ToArray(), duplicated[0]);
+        Assert.Equal(mono.Data.ToArray(), duplicated[1]);
+    }
+
     private static double[] Resample(int frequency, int from, int to)
     {
         float[] tone = new float[from];

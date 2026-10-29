@@ -52,16 +52,18 @@ internal sealed class Resampler
 
     internal long OutputLength(int inputFrames) => ((long)inputFrames * phases + step - 1) / step;
 
-    internal float[] Process(ReadOnlySpan<float> input)
+    // Callers place the input frames at Lead in a zeroed buffer of PaddedLength floats, so the filter reads its zero
+    // padding without a copy, and size the output with OutputLength.
+    internal int Lead => half;
+
+    internal int PaddedLength(int inputFrames) => inputFrames + 2 * half + taps;
+
+    internal void Process(ReadOnlySpan<float> padded, Span<float> output)
     {
-        float[] output = new float[OutputLength(input.Length)];
-        float[] padded = new float[input.Length + 2 * half + taps];
-        input.CopyTo(padded.AsSpan(half));
-        var source = padded.AsSpan();
         long whole = 0, phase = 0;
         for (int n = 0; n < output.Length; n++)
         {
-            var window = source.Slice((int)whole + 1, taps);
+            var window = padded.Slice((int)whole + 1, taps);
             if (rows == phases)
                 output[n] = Dot(window, table.AsSpan((int)phase * taps, taps));
             else
@@ -76,7 +78,6 @@ internal sealed class Resampler
             whole += phase / phases;
             phase %= phases;
         }
-        return output;
     }
 
     // Fixed-width vectors keep the summation order, and so the output, the same on every CPU.

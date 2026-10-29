@@ -1,3 +1,5 @@
+using System.Numerics;
+using System.Runtime.InteropServices;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace CommonFury.Audio;
@@ -63,20 +65,21 @@ public sealed partial class PcmAudio
         int targetRate = sampleRate ?? SampleRate, targetChannels = channels ?? Channels;
         if (targetRate == SampleRate && targetChannels == Channels)
             return this;
-        float[] samples = new float[data.Length / 2];
-        for (int i = 0; i < samples.Length; i++)
-            samples[i] = ReadInt16LittleEndian(data.AsSpan(i * 2)) / 32768f;
-        return ConvertCore(samples, SampleRate, Channels, targetRate, targetChannels);
+        return ConvertCore(Samples(), SampleRate, Channels, targetRate, targetChannels);
     }
 
     public byte[][] SplitChannels()
     {
-        byte[][] result = new byte[Channels][];
-        for (int c = 0; c < Channels; c++)
+        // Moving whole 16-bit samples keeps their stored byte order on any host.
+        int channels = Channels, frames = SampleCount;
+        var samples = MemoryMarshal.Cast<byte, short>(data);
+        byte[][] result = new byte[channels][];
+        for (int c = 0; c < channels; c++)
         {
-            result[c] = new byte[SampleCount * 2];
-            for (int s = 0; s < SampleCount; s++)
-                data.AsSpan((s * Channels + c) * 2, 2).CopyTo(result[c].AsSpan(s * 2));
+            result[c] = new byte[frames * 2];
+            var plane = MemoryMarshal.Cast<byte, short>(result[c].AsSpan());
+            for (int f = 0, i = c; f < frames; f++, i += channels)
+                plane[f] = samples[i];
         }
         return result;
     }
@@ -91,11 +94,16 @@ public sealed partial class PcmAudio
         foreach (var channel in channels)
             if (channel.Channels != 1 || channel.SampleCount != samples || channel.SampleRate != rate)
                 throw new ArgumentException("Channels must be mono with matching duration and sample rate.", nameof(channels));
-        byte[] result = new byte[checked(samples * channels.Count * 2)];
-        for (int s = 0; s < samples; s++)
-            for (int c = 0; c < channels.Count; c++)
-                channels[c].Data.Slice(s * 2, 2).CopyTo(result.AsSpan((s * channels.Count + c) * 2));
-        return new(result, rate, channels.Count);
+        int count = channels.Count;
+        byte[] result = new byte[checked(samples * count * 2)];
+        var interleaved = MemoryMarshal.Cast<byte, short>(result.AsSpan());
+        for (int c = 0; c < count; c++)
+        {
+            var plane = MemoryMarshal.Cast<byte, short>(channels[c].data);
+            for (int s = 0, i = c; s < samples; s++, i += count)
+                interleaved[i] = plane[s];
+        }
+        return new(result, rate, count);
     }
 
     /// <summary>Twice the peak absolute amplitude of each block of <paramref name="blockSamples"/> frames, saturated to <see cref="ushort"/>.</summary>
@@ -103,52 +111,110 @@ public sealed partial class PcmAudio
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSamples);
         ushort[] peaks = new ushort[(int)((SampleCount + (long)blockSamples - 1) / blockSamples)];
-        for (int i = 0; i < data.Length; i += 2)
+        var samples = Samples();
+        int blockLength = (int)Math.Min((long)blockSamples * Channels, samples.Length);
+        for (int b = 0; b < peaks.Length; b++)
         {
-            int block = i / 2 / Channels / blockSamples;
-            int amplitude = Math.Min(65535, Math.Abs((int)ReadInt16LittleEndian(data.AsSpan(i))) * 2);
-            peaks[block] = Math.Max(peaks[block], (ushort)amplitude);
+            var block = samples[..Math.Min(blockLength, samples.Length)];
+            peaks[b] = (ushort)Math.Min(65535, PeakAmplitude(block) * 2);
+            samples = samples[block.Length..];
         }
         return peaks;
     }
 
-    private static PcmAudio ConvertCore(ReadOnlySpan<float> samples, int sampleRate, int channels, int targetRate, int targetChannels)
+    private static int PeakAmplitude(ReadOnlySpan<short> samples)
+    {
+        // Both bounds start at zero because only the larger magnitude is returned.
+        short min = 0, max = 0;
+        int i = 0;
+        if (Vector.IsHardwareAccelerated && samples.Length >= Vector<short>.Count)
+        {
+            Vector<short> low = Vector<short>.Zero, high = Vector<short>.Zero;
+            foreach (var vector in MemoryMarshal.Cast<short, Vector<short>>(samples))
+            {
+                low = Vector.Min(low, vector);
+                high = Vector.Max(high, vector);
+            }
+            for (int lane = 0; lane < Vector<short>.Count; lane++)
+            {
+                min = Math.Min(min, low[lane]);
+                max = Math.Max(max, high[lane]);
+            }
+            i = samples.Length - samples.Length % Vector<short>.Count;
+        }
+        for (; i < samples.Length; i++)
+        {
+            min = Math.Min(min, samples[i]);
+            max = Math.Max(max, samples[i]);
+        }
+        return Math.Max(-min, max);
+    }
+
+    private static PcmAudio ConvertCore<T>(ReadOnlySpan<T> samples, int sampleRate, int channels, int targetRate, int targetChannels)
+        where T : unmanaged
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetRate);
         RequireChannels(targetChannels, nameof(targetChannels));
         if (targetChannels != channels && (channels, targetChannels) is not ((2, 1) or (1, 2)))
             throw new NotSupportedException("Automatic channel conversion supports mono/stereo only; keep the original channels and arrange them explicitly for other layouts.");
 
-        // Mix down before resampling and duplicate after it, so only the needed channels are filtered.
-        int frames = samples.Length / channels, planes = Math.Min(channels, targetChannels);
-        var planar = new float[planes][];
-        for (int c = 0; c < planes; c++)
-            planar[c] = new float[frames];
-        for (int f = 0; f < frames; f++)
-            if (planes < channels)
-                planar[0][f] = (samples[f * 2] + samples[f * 2 + 1]) * 0.5f;
-            else
-                for (int c = 0; c < channels; c++)
-                    planar[c][f] = samples[f * channels + c];
-
+        int frames = samples.Length / channels, planes = Math.Min(channels, targetChannels), outputFrames = frames;
+        Resampler? resampler = null;
         if (targetRate != sampleRate)
         {
-            var resampler = new Resampler(sampleRate, targetRate);
-            long outputFrames = resampler.OutputLength(frames);
-            if (outputFrames * targetChannels * 2 > Array.MaxLength)
+            resampler = new Resampler(sampleRate, targetRate);
+            long resampled = resampler.OutputLength(frames);
+            if (resampled * targetChannels * 2 > Array.MaxLength)
                 throw new ArgumentOutOfRangeException(nameof(targetRate), "The resampled audio would not fit in one array.");
-            for (int c = 0; c < planes; c++)
-                planar[c] = resampler.Process(planar[c]);
-            frames = (int)outputFrames;
+            outputFrames = (int)resampled;
         }
         else if ((long)frames * targetChannels * 2 > Array.MaxLength)
             throw new ArgumentOutOfRangeException(nameof(targetChannels), "The converted audio would not fit in one array.");
 
-        byte[] pcm = new byte[frames * targetChannels * 2];
-        for (int f = 0; f < frames; f++)
-            for (int c = 0; c < targetChannels; c++)
-                WriteInt16LittleEndian(pcm.AsSpan((f * targetChannels + c) * 2), Quantize(planar[Math.Min(c, planes - 1)][f]));
+        // Mix down before resampling and duplicate after it, so only the needed channels are filtered. Planes go one at a
+        // time through one buffer whose zero padding feeds the filter.
+        float[] buffer = new float[resampler?.PaddedLength(frames) ?? frames];
+        var plane = buffer.AsSpan(resampler?.Lead ?? 0, frames);
+        Span<float> converted = resampler is null ? plane : new float[outputFrames];
+        byte[] pcm = new byte[outputFrames * targetChannels * 2];
+        var output = MemoryMarshal.Cast<byte, short>(pcm.AsSpan());
+        for (int p = 0; p < planes; p++)
+        {
+            if (planes < channels)
+                for (int f = 0; f < frames; f++)
+                    plane[f] = (ToFloat(samples[f * 2]) + ToFloat(samples[f * 2 + 1])) * 0.5f;
+            else
+                for (int f = 0, i = p; f < frames; f++, i += channels)
+                    plane[f] = ToFloat(samples[i]);
+            resampler?.Process(buffer, converted);
+
+            // The last plane also fills the channels that mono duplicates.
+            int end = p == planes - 1 ? targetChannels : p + 1;
+            for (int f = 0, i = p; f < outputFrames; f++, i += targetChannels)
+            {
+                short sample = Quantize(converted[f]);
+                if (!BitConverter.IsLittleEndian)
+                    sample = ReverseEndianness(sample);
+                for (int c = 0; c < end - p; c++)
+                    output[i + c] = sample;
+            }
+        }
         return new(pcm, targetRate, targetChannels);
+    }
+
+    // PCM16 samples scale by 1/32768; float samples pass through unchanged.
+    private static float ToFloat<T>(T sample) where T : unmanaged
+        => typeof(T) == typeof(short) ? (short)(object)sample / 32768f : (float)(object)sample;
+
+    // Samples are stored little-endian; big-endian hosts read a byte-swapped copy.
+    private ReadOnlySpan<short> Samples()
+    {
+        var samples = MemoryMarshal.Cast<byte, short>(data);
+        if (BitConverter.IsLittleEndian)
+            return samples;
+        short[] swapped = new short[samples.Length];
+        ReverseEndianness(samples, swapped);
+        return swapped;
     }
 
     private static short Quantize(float sample) => (short)Math.Clamp(MathF.Round(sample * 32768f), short.MinValue, short.MaxValue);

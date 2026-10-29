@@ -106,6 +106,40 @@ public sealed class PcmAudioTests
     }
 
     [Fact]
+    public void SplitsAndInterleavesManyChannelsWithOddLengths()
+    {
+        PcmAudio audio = Pcm(8000, 3, 1, -2, 3, 4, -5, 6, short.MinValue, 8, short.MaxValue, 10, 11, -12, 13, 14, 15);
+        PcmAudio[] channels = [.. audio.SplitChannels().Select(c => new PcmAudio(c, 8000))];
+        Assert.Equal([1, 4, short.MinValue, 10, 13], Samples(channels[0]));
+        Assert.Equal([-2, -5, 8, 11, 14], Samples(channels[1]));
+        Assert.Equal([3, 6, short.MaxValue, -12, 15], Samples(channels[2]));
+        Assert.Equal(audio.Data.ToArray(), PcmAudio.Interleave(channels).Data.ToArray());
+        Assert.Empty(Pcm(8000, 2).SplitChannels()[1]);
+    }
+
+    [Fact]
+    public void DerivesPeaksAcrossLongBlocksAndPartialTails()
+    {
+        // 33-frame blocks: the extreme sample sits in a block's last slot, then mid-block, then in a shorter final block.
+        short[] mono = new short[70];
+        Array.Fill(mono, (short)10);
+        mono[32] = -1234;
+        mono[40] = short.MinValue;
+        mono[68] = short.MaxValue;
+        Assert.Equal([2468, 65535, 65534], Pcm(8000, 1, mono).DerivePeaks(33));
+
+        // 12-frame stereo blocks span 24 samples.
+        short[] stereo = new short[50];
+        stereo[17] = -300;
+        stereo[30] = 500;
+        stereo[31] = -499;
+        stereo[49] = -1;
+        Assert.Equal([600, 1000, 2], Pcm(8000, 2, stereo).DerivePeaks(12));
+        Assert.Equal([1000], Pcm(8000, 2, stereo).DerivePeaks());
+        Assert.Empty(Pcm(8000, 2).DerivePeaks());
+    }
+
+    [Fact]
     public void ConvertsChannelsWithTheDocumentedRules()
     {
         PcmAudio stereo = Pcm(8000, 2, 1000, 3000, -32768, -32768, 32767, 1);
