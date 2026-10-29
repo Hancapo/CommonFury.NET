@@ -40,6 +40,39 @@ public sealed class HeightMapAuthoringTests
     }
 
     [Fact]
+    public void RangeQueriesAggregateOccupiedCellsInTheClippedRectangle()
+    {
+        var map = new HeightMap<ushort>(4, 3, new(Vector3.Zero, new(40, 30, 1000)));
+        map.SetHeight(0, 0, 100, 200);
+        map.SetHeight(3, 0, 50, 60);
+        map.SetHeight(1, 2, 300, 900);
+        map.SetHeight(2, 1, 400, 500);
+        float Lower(int column, int row) => map.GetHeightRange(column, row)!.Value.Minimum;
+        float Upper(int column, int row) => map.GetHeightRange(column, row)!.Value.Maximum;
+        Assert.Equal((Lower(3, 0), Upper(1, 2)), map.GetHeightRangeInBounds(new(-100, -100), new(100, 100)));
+        // Columns 1-2 of rows 1-2; the query edges fall inside cells, which are included.
+        Assert.Equal((Lower(1, 2), Upper(1, 2)), map.GetHeightRangeInBounds(new(15, 15), new(25, 25)));
+        Assert.Equal((Lower(2, 1), Upper(2, 1)), map.GetHeightRangeInBounds(new(20, 10), new(30, 20)));
+        Assert.Equal((Lower(0, 0), Upper(0, 0)), map.GetHeightRangeInBounds(new(-5, -5), new(10, 10)));
+        Assert.Null(map.GetHeightRangeInBounds(new(10, 0), new(30, 10)));
+        Assert.Null(map.GetHeightRangeInBounds(new(50, 0), new(60, 10)));
+    }
+
+    [Fact]
+    public void WaterMasksPackEightCellsPerByteFromBitZero()
+    {
+        var map = new HeightMap<byte>(11, 1, new(Vector3.Zero, new(11, 1, 255)));
+        bool[] water = [true, false, true, true, false, false, false, true, false, true, true];
+        map.WaterCells = water;
+        byte[] bytes = HeightMapCodec.Write(map);
+        Assert.Equal(new byte[] { 0x8D, 0x06 }, bytes[^2..]);
+        Assert.Equal(water, HeightMapCodec.Read<byte>(bytes).WaterCells);
+        // Padding bits after the last cell are ignored.
+        bytes[^1] |= 0xF8;
+        Assert.Equal(water, HeightMapCodec.Read<byte>(bytes).WaterCells);
+    }
+
+    [Fact]
     public void ExpandedGridRoundtripHasAnExplicitReadBudget()
     {
         var map = new HeightMap<ushort>(1001, 1, new(Vector3.Zero, new(1001, 1, 100)));

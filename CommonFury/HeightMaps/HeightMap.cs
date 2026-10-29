@@ -116,6 +116,16 @@ public sealed partial class HeightMap<T> where T : unmanaged, INumber<T>
         minimum.CopyTo(MinimumCells);
         maximum.CopyTo(MaximumCells);
     }
+    // Takes ownership of freshly decoded buffers whose dimensions and lengths the caller has checked.
+    internal HeightMap(int columns, int rows, HeightMapBounds bounds, T[] minimum, T[] maximum, bool[]? water)
+    {
+        Bounds = bounds;
+        Columns = columns;
+        Rows = rows;
+        MinimumCells = minimum;
+        MaximumCells = maximum;
+        waterCells = water;
+    }
     /// <summary>Number of cells along X.</summary>
     public int Columns { get; }
     /// <summary>Number of cells along Y.</summary>
