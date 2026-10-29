@@ -115,6 +115,18 @@ public sealed class GeometryTests : IDisposable
     }
 
     [Fact]
+    public void TriangulationClipsTheFirstEarInBoundaryOrder()
+    {
+        // An L shape with a collinear vertex (1) on its bottom edge.
+        Vector3[] shape = [new(0, 0, 0), new(1, 0, 0), new(2, 0, 0), new(2, 1, 0), new(1, 1, 0), new(1, 2, 0), new(0, 2, 0)];
+        int[][] expected = [[6, 0, 1], [1, 2, 3], [1, 3, 4], [6, 1, 4], [4, 5, 6]];
+        Assert.Equal(expected.Select(t => t.Select(i => shape[i]).ToArray()), PolygonMath.TriangulateXY(shape));
+        // Clockwise; in the fourth round the collinear vertex blocks the first convex candidate.
+        int[][] reversed = [[0, 6, 5], [0, 5, 4], [0, 4, 3], [3, 2, 1], [3, 1, 0]];
+        Assert.Equal(reversed.Select(t => t.Select(i => shape[i]).ToArray()), PolygonMath.TriangulateXY(shape.Reverse().ToArray()));
+    }
+
+    [Fact]
     public void HeightFieldsInterpolateTrianglesAndSamples()
     {
         Assert.True(HeightFieldMath.TryTriangleHeight(new(0.25f, 0.25f), new(0, 0, 0), new(1, 0, 4), new(0, 1, 8), out float height));
@@ -125,6 +137,26 @@ public sealed class GeometryTests : IDisposable
         Assert.Equal(10, HeightFieldMath.InterpolateSamples(Vector2.Zero, samples));
         Assert.Equal(15, HeightFieldMath.InterpolateSamples(new(1, 0), [new(0, 0, 10), new(2, 0, 20)]), 5);
         Assert.Equal(10, HeightFieldMath.InterpolateSamples(new(0.1f, 0), [new(0, 0, 10), new(2, 0, 20)], nearestCount: 1));
+    }
+
+    [Fact]
+    public void SampleInterpolationKeepsTheLowestIndexAmongTies()
+    {
+        // Four samples at distance one; ties are taken in sample order.
+        Vector3[] ring = [new(3, 0, 1000), new(1, 0, 10), new(0, 1, 20), new(-1, 0, 30), new(0, -1, 40)];
+        Assert.Equal(15, HeightFieldMath.InterpolateSamples(Vector2.Zero, ring, nearestCount: 2));
+        Assert.Equal(20, HeightFieldMath.InterpolateSamples(Vector2.Zero, ring, nearestCount: 3));
+        Assert.Equal(25, HeightFieldMath.InterpolateSamples(Vector2.Zero, ring));
+        // The first exact match wins, but every sample is still validated.
+        Assert.Equal(7, HeightFieldMath.InterpolateSamples(new(1, 0), [new(0, 0, 1), new(1, 0, 7), new(1, 0, 9)]));
+        Assert.Throws<ArgumentException>(() => HeightFieldMath.InterpolateSamples(Vector2.Zero, [new(0, 0, 1), new(float.NaN, 0, 2)]));
+        // Many equidistant samples, below and above the count kept on the stack.
+        Vector3[] many = Enumerable.Range(0, 80).Select(i => new Vector3(i % 2 == 0 ? 1 : -1, 0, i)).ToArray();
+        Assert.Equal(31.5f, HeightFieldMath.InterpolateSamples(Vector2.Zero, many, nearestCount: 64));
+        Assert.Equal(32, HeightFieldMath.InterpolateSamples(Vector2.Zero, many, nearestCount: 65));
+        Assert.Equal(39.5f, HeightFieldMath.InterpolateSamples(Vector2.Zero, many, nearestCount: 1000));
+        // A closer sample last: weight one for it, a quarter for the 69 nearest others.
+        Assert.Equal((float)(588.5 / 18.25), HeightFieldMath.InterpolateSamples(Vector2.Zero, [.. many[..70], new(0.5f, 0, 2)], nearestCount: 70));
     }
 
     [Fact]
@@ -149,6 +181,9 @@ public sealed class GeometryTests : IDisposable
         int[] rebuilt = parts.SelectMany(part => part.Indices.Select(local => part.VertexIndices[local])).ToArray();
         Assert.Equal(indices, rebuilt);
         MeshPartition whole = Assert.Single(MeshPartitioning.Split(indices, 6, 6));
+        Assert.Equal([0, 1, 2, 3], parts[0].VertexIndices);
+        Assert.Equal([3, 4, 5, 0], parts[1].VertexIndices);
+        Assert.All(parts, part => Assert.Equal([0, 1, 2, 2, 1, 3], part.Indices));
         Assert.Equal([0, 1, 2, 3, 4, 5], whole.VertexIndices);
         Assert.Throws<ArgumentOutOfRangeException>(() => MeshPartitioning.Split(indices, 6, 2));
     }
@@ -165,6 +200,32 @@ public sealed class GeometryTests : IDisposable
         Assert.Equal([1, 1, 1, 1], RasterMath.BoxBlur([1, 1, 1, 1], 2, 2, 3));
         Assert.Equal([0, 9], RasterMath.BoxBlur([0, 9], 2, 1, 0));
         Assert.Throws<ArgumentException>(() => RasterMath.BoxBlur([1], 2, 1, 1));
+    }
+
+    [Fact]
+    public void BlurClampsBordersAndDistanceSpansColumnBlocks()
+    {
+        double[] corner = new double[12];
+        corner[0] = 9;
+        Assert.Equal([4, 2, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0], RasterMath.BoxBlur(corner, 4, 3, 1));
+        double[] center = new double[16];
+        center[5] = 9;
+        Assert.Equal([1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0], RasterMath.BoxBlur(center, 4, 4, 1));
+        double[] wide = new double[11 * 3];
+        Array.Fill(wide, 18);
+        wide[12] = 0;
+        double[] blurred = RasterMath.BoxBlur(wide, 11, 3, 1);
+        Assert.Equal(16, blurred[1]);
+        Assert.Equal(16, blurred[12]);
+        Assert.Equal(18, blurred[16]);
+        // More columns than one block, with a partial last block.
+        bool[] mask = new bool[11 * 3];
+        Array.Fill(mask, true);
+        mask[2 * 11 + 9] = false;
+        double[] distance = RasterMath.DistanceTransform(mask, 11, 3);
+        for (int y = 0; y < 3; y++)
+            for (int x = 0; x < 11; x++)
+                Assert.Equal((x - 9) * (x - 9) + (y - 2) * (y - 2), distance[y * 11 + x]);
     }
 
     [Fact]

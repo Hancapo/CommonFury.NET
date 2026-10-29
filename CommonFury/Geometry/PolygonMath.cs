@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using CommonFury.Numerics;
 
 namespace CommonFury.Geometry;
@@ -6,6 +7,9 @@ namespace CommonFury.Geometry;
 /// <summary>Polygon operations in the XY plane; Z is carried along as height.</summary>
 public static class PolygonMath
 {
+    // Ear-clipping vertex states; a nonnegative state is a vertex inside the ear.
+    private const int Untested = -1, NotConvex = -2, Ear = -3;
+
     /// <summary>Tests an XY point against a convex boundary of either winding, edges included.</summary>
     public static bool ContainsConvexXY(ReadOnlySpan<Vector3> vertices, Vector2 point, double tolerance = 1e-9)
     {
@@ -49,27 +53,29 @@ public static class PolygonMath
         foreach (var vertex in vertices)
             if (!VectorMath.IsFinite(vertex))
                 throw new ArgumentOutOfRangeException(nameof(vertices));
-        var polygon = vertices.ToArray().ToList();
-        foreach (var plane in new[] { (0, bounds.Minimum.X, true), (0, bounds.Maximum.X, false), (1, bounds.Minimum.Y, true), (1, bounds.Maximum.Y, false) })
+        var polygon = new List<Vector3>(vertices.Length);
+        polygon.AddRange(vertices);
+        var output = new List<Vector3>(vertices.Length);
+        // Planes in order: minimum X, maximum X, minimum Y, maximum Y.
+        for (int plane = 0; plane < 4 && polygon.Count > 0; plane++)
         {
-            if (polygon.Count == 0)
-                break;
-            var output = new List<Vector3>();
-            Vector3 previous = polygon[^1];
-            float Component(Vector3 v) => plane.Item1 == 0 ? v.X : v.Y;
-            bool Inside(Vector3 v) => plane.Item3 ? Component(v) >= plane.Item2 - tolerance : Component(v) <= plane.Item2 + tolerance;
-            bool previousInside = Inside(previous);
-            foreach (var current in polygon)
+            bool alongX = plane < 2, minimum = (plane & 1) == 0;
+            float value = alongX ? (minimum ? bounds.Minimum.X : bounds.Maximum.X) : (minimum ? bounds.Minimum.Y : bounds.Maximum.Y);
+            output.Clear();
+            ReadOnlySpan<Vector3> source = CollectionsMarshal.AsSpan(polygon);
+            Vector3 previous = source[^1];
+            bool previousInside = IsInside(previous, alongX, minimum, value, tolerance);
+            foreach (Vector3 current in source)
             {
-                bool currentInside = Inside(current);
+                bool currentInside = IsInside(current, alongX, minimum, value, tolerance);
                 if (currentInside != previousInside)
                 {
-                    float difference = Component(current) - Component(previous);
-                    Vector3 intersection = MathF.Abs(difference) <= tolerance ? previous : Vector3.Lerp(previous, current, (plane.Item2 - Component(previous)) / difference);
-                    if (plane.Item1 == 0)
-                        intersection.X = plane.Item2;
+                    float difference = Component(current, alongX) - Component(previous, alongX);
+                    Vector3 intersection = MathF.Abs(difference) <= tolerance ? previous : Vector3.Lerp(previous, current, (value - Component(previous, alongX)) / difference);
+                    if (alongX)
+                        intersection.X = value;
                     else
-                        intersection.Y = plane.Item2;
+                        intersection.Y = value;
                     output.Add(intersection);
                 }
                 if (currentInside)
@@ -77,16 +83,24 @@ public static class PolygonMath
                 previous = current;
                 previousInside = currentInside;
             }
-            polygon = output;
+            (polygon, output) = (output, polygon);
         }
-        var clean = new List<Vector3>();
-        foreach (var vertex in polygon)
-            if (clean.Count == 0 || Vector3.Distance(vertex, clean[^1]) > tolerance)
-                clean.Add(vertex);
-        if (clean.Count > 1 && Vector3.Distance(clean[0], clean[^1]) <= tolerance)
-            clean.RemoveAt(clean.Count - 1);
-        return clean.Count < 3 || Math.Abs(SignedAreaXY(clean.ToArray())) <= tolerance ? [] : clean.ToArray();
+        // Drop vertices within tolerance of the last kept one, compacting in place.
+        Span<Vector3> clean = CollectionsMarshal.AsSpan(polygon);
+        int count = 0;
+        foreach (Vector3 vertex in clean)
+            if (count == 0 || Vector3.Distance(vertex, clean[count - 1]) > tolerance)
+                clean[count++] = vertex;
+        if (count > 1 && Vector3.Distance(clean[0], clean[count - 1]) <= tolerance)
+            count--;
+        clean = clean[..count];
+        return count < 3 || Math.Abs(SignedAreaXY(clean)) <= tolerance ? [] : clean.ToArray();
     }
+
+    private static float Component(Vector3 value, bool alongX) => alongX ? value.X : value.Y;
+
+    private static bool IsInside(Vector3 value, bool alongX, bool minimum, float plane, float tolerance) =>
+        minimum ? Component(value, alongX) >= plane - tolerance : Component(value, alongX) <= plane + tolerance;
 
     /// <summary>Ear-clipping triangulation of a simple polygon of either winding. Throws for a degenerate or
     /// self-intersecting boundary.</summary>
@@ -103,40 +117,68 @@ public static class PolygonMath
         if (Math.Abs(area) <= tolerance)
             throw new ArgumentException("Polygon has no projected area.", nameof(vertices));
         int orientation = Math.Sign(area);
-        var remaining = Enumerable.Range(0, vertices.Length).ToList();
-        var result = new List<Vector3[]>();
-        while (remaining.Count > 3)
+        int count = vertices.Length;
+        // Remaining vertices form a ring in input order; head is the first of them.
+        var previous = new int[count];
+        var next = new int[count];
+        var state = new int[count];
+        var removed = new bool[count];
+        for (int i = 0; i < count; i++)
         {
-            bool found = false;
-            for (int i = 0; i < remaining.Count; i++)
-            {
-                int previous = remaining[(i + remaining.Count - 1) % remaining.Count], current = remaining[i], next = remaining[(i + 1) % remaining.Count];
-                Vector3 a = vertices[previous], b = vertices[current], c = vertices[next];
-                if (Vector3.Cross(b - a, c - b).Z * orientation <= tolerance)
-                    continue;
-                bool occupied = false;
-                foreach (int candidate in remaining)
-                {
-                    if (candidate == previous || candidate == current || candidate == next)
-                        continue;
-                    Vector3 p = vertices[candidate];
-                    if (HeightFieldMath.TryTriangleHeight(new(p.X, p.Y), a, b, c, out _, tolerance))
-                    {
-                        occupied = true;
-                        break;
-                    }
-                }
-                if (occupied)
-                    continue;
-                result.Add([a, b, c]);
-                remaining.RemoveAt(i);
-                found = true;
-                break;
-            }
-            if (!found)
-                throw new ArgumentException("Polygon cannot be triangulated; provide a simple nondegenerate boundary.", nameof(vertices));
+            previous[i] = i == 0 ? count - 1 : i - 1;
+            next[i] = i == count - 1 ? 0 : i + 1;
         }
-        result.Add([vertices[remaining[0]], vertices[remaining[1]], vertices[remaining[2]]]);
+        Array.Fill(state, Untested);
+        int head = 0;
+        var result = new List<Vector3[]>(count - 2);
+        for (int remaining = count; remaining > 3; remaining--)
+        {
+            // The first ear in ring order is clipped. A vertex stays a non-ear while its neighbors are unchanged
+            // and, when another vertex lies in its triangle, while that vertex remains, so only those are retested.
+            int ear = head;
+            for (int step = 0; ; step++, ear = next[ear])
+            {
+                if (step == remaining)
+                    throw new ArgumentException("Polygon cannot be triangulated; provide a simple nondegenerate boundary.", nameof(vertices));
+                if (state[ear] == Untested || (state[ear] >= 0 && removed[state[ear]]))
+                    state[ear] = EarState(vertices, previous[ear], ear, next[ear], next, head, orientation, tolerance);
+                if (state[ear] == Ear)
+                    break;
+            }
+            int before = previous[ear], after = next[ear];
+            result.Add([vertices[before], vertices[ear], vertices[after]]);
+            next[before] = after;
+            previous[after] = before;
+            removed[ear] = true;
+            state[before] = state[after] = Untested;
+            if (ear == head)
+                head = after;
+        }
+        result.Add([vertices[head], vertices[next[head]], vertices[next[next[head]]]]);
         return result.AsReadOnly();
+    }
+
+    // Ear, NotConvex, or the first remaining vertex inside the triangle.
+    private static int EarState(ReadOnlySpan<Vector3> vertices, int previous, int current, int following, int[] next, int head,
+        int orientation, float tolerance)
+    {
+        Vector3 a = vertices[previous], b = vertices[current], c = vertices[following];
+        if (Vector3.Cross(b - a, c - b).Z * orientation <= tolerance)
+            return NotConvex;
+        var triangle = new BarycentricTriangle(a, b, c);
+        if (triangle.IsDegenerate)
+            return Ear;
+        int candidate = head;
+        do
+        {
+            if (candidate != previous && candidate != current && candidate != following)
+            {
+                Vector3 p = vertices[candidate];
+                if (triangle.Contains(new(p.X, p.Y), tolerance, out _, out _, out _))
+                    return candidate;
+            }
+            candidate = next[candidate];
+        } while (candidate != head);
+        return Ear;
     }
 }
