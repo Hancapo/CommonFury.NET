@@ -168,6 +168,29 @@ public sealed class PsoGraphWriterTests
         Assert.Throws<ArgumentException>(() => PsoArray.Create([null!]));
     }
 
+    [Fact]
+    public void TextBudgetBoundsPointersToUnterminatedText()
+    {
+        // Ten string pointers share one 1000-byte block without a terminator, so each decodes to the whole block.
+        byte[] root = new byte[16];
+        BinaryPrimitives.WriteUInt32BigEndian(root, new PsoPointer(2, 0).Encode());
+        BinaryPrimitives.WriteUInt16BigEndian(root.AsSpan(8), 10);
+        byte[] pointers = new byte[80];
+        for (int i = 0; i < 10; i++)
+            BinaryPrimitives.WriteUInt32BigEndian(pointers.AsSpan(i * 8), new PsoPointer(3, 0).Encode());
+        PsoFile file = File([
+            new(PsoEntry.ArrayInfoHash, PsoDataType.String, 1, 0, 0),
+            new(ArrayHash, PsoDataType.Array, 0, 0, 0)
+        ], root, ((uint)PsoDataType.String, pointers), (1, Enumerable.Repeat((byte)'A', 1000).ToArray()));
+
+        PsoArray values = Assert.IsType<PsoArray>(file.ReadRoot(new(maximumTextBytes: 10_000)).Root.Fields[0].Value);
+        Assert.All(values.Values, value => Assert.Equal(1000, Assert.IsType<PsoText>(value).Bytes.Length));
+        Assert.Throws<InvalidDataException>(() => file.ReadRoot(new(maximumTextBytes: 9_999)));
+        PsoDocument isolated = file.ReadRoot(new(continueOnFieldErrors: true, maximumTextBytes: 5_000));
+        Assert.IsType<PsoMalformed>(isolated.Root.Fields[0].Value);
+        Assert.Contains(isolated.Report.Diagnostics, diagnostic => diagnostic.Code == PsoDiagnosticCodes.FieldDecode);
+    }
+
     private static PsoFile File(PsoEntry[] entries, byte[] data, params (uint Type, byte[] Data)[] blocks)
     {
         var schema = new PsoSchema([new PsoStruct(RootHash, data.Length, entries)]);
