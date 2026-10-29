@@ -70,6 +70,83 @@ public sealed class TexturesPixelTests
     }
 
     [Fact]
+    public void SmallFloatTablesMatchTheFormulaForEveryValue()
+    {
+        static byte Expected(int value, int mantissaBits)
+        {
+            int exponent = value >> mantissaBits, mantissa = value & ((1 << mantissaBits) - 1);
+            float fraction = mantissa / (float)(1 << mantissaBits);
+            float decoded = exponent == 0 ? MathF.ScaleB(fraction, -14)
+                : exponent == 31 ? (mantissa == 0 ? float.PositiveInfinity : float.NaN)
+                : MathF.ScaleB(1 + fraction, exponent - 15);
+            return PixelMath.ToByte(decoded);
+        }
+        Assert.Equal(2048, PixelCodec.ElevenBitFloats.Length);
+        Assert.Equal(1024, PixelCodec.TenBitFloats.Length);
+        byte[] rgba = new byte[2048 * 4];
+        byte[] encoded = new byte[2048 * 4];
+        for (int value = 0; value < 2048; value++)
+        {
+            Assert.Equal(Expected(value, 6), PixelCodec.ElevenBitFloats[value]);
+            if (value < 1024)
+                Assert.Equal(Expected(value, 5), PixelCodec.TenBitFloats[value]);
+            BinaryPrimitives.WriteUInt32LittleEndian(encoded.AsSpan(value * 4), (uint)(value | (2047 - value) << 11 | (value & 1023) << 22));
+        }
+        PixelCodec.Decode(encoded, TextureFormat.R11G11B10Float, rgba);
+        for (int value = 0; value < 2048; value++)
+            Assert.Equal(new[] { Expected(value, 6), Expected(2047 - value, 6), Expected(value & 1023, 5), (byte)255 }, rgba[(value * 4)..(value * 4 + 4)]);
+    }
+
+    [Fact]
+    public void ByteFormatsCopyOrSwapWholeImages()
+    {
+        byte[] image = Enumerable.Range(1, 4 * 5).Select(i => (byte)(i * 11)).ToArray();
+        byte[] swapped = new byte[image.Length], opaque = new byte[image.Length];
+        for (int i = 0; i < image.Length; i += 4)
+        {
+            swapped[i] = opaque[i] = image[i + 2];
+            swapped[i + 1] = opaque[i + 1] = image[i + 1];
+            swapped[i + 2] = opaque[i + 2] = image[i];
+            swapped[i + 3] = image[i + 3];
+            opaque[i + 3] = 255;
+        }
+        byte[] output = new byte[image.Length];
+        PixelCodec.Encode(image, TextureFormat.R8G8B8A8UnormSrgb, output);
+        Assert.Equal(image, output);
+        PixelCodec.Decode(image, TextureFormat.R8G8B8A8Unorm, output);
+        Assert.Equal(image, output);
+        PixelCodec.Encode(image, TextureFormat.B8G8R8A8Unorm, output);
+        Assert.Equal(swapped, output);
+        PixelCodec.Decode(image, TextureFormat.B8G8R8A8UnormSrgb, output);
+        Assert.Equal(swapped, output);
+        PixelCodec.Encode(image, TextureFormat.B8G8R8X8UnormSrgb, output);
+        Assert.Equal(opaque, output);
+        PixelCodec.Decode(image, TextureFormat.B8G8R8X8Unorm, output);
+        Assert.Equal(opaque, output);
+    }
+
+    // Every texel of the output is overwritten, including channels the format lacks.
+    [Theory]
+    [InlineData(TextureFormat.R8Unorm, new byte[] { 7, 9 }, new byte[] { 7, 7, 7, 255, 9, 9, 9, 255 })]
+    [InlineData(TextureFormat.A8Unorm, new byte[] { 7, 9 }, new byte[] { 255, 255, 255, 7, 255, 255, 255, 9 })]
+    [InlineData(TextureFormat.R8G8Unorm, new byte[] { 7, 9, 3, 4 }, new byte[] { 7, 9, 0, 255, 3, 4, 0, 255 })]
+    [InlineData(TextureFormat.B5G6R5Unorm, new byte[] { 0x1F, 0xF8, 0xE0, 0x07 }, new byte[] { 255, 0, 255, 255, 0, 255, 0, 255 })]
+    [InlineData(TextureFormat.B5G5R5A1Unorm, new byte[] { 0x00, 0xFC, 0xE0, 0x03 }, new byte[] { 255, 0, 0, 255, 0, 255, 0, 0 })]
+    [InlineData(TextureFormat.R10G10B10A2Unorm, new byte[] { 0xFF, 0x03, 0x00, 0x40, 0x00, 0x00, 0xF0, 0xBF }, new byte[] { 255, 0, 0, 85, 0, 0, 255, 170 })]
+    [InlineData(TextureFormat.R16Unorm, new byte[] { 0x00, 0x80, 0xFF, 0xFF }, new byte[] { 128, 128, 128, 255, 255, 255, 255, 255 })]
+    [InlineData(TextureFormat.R16G16Unorm, new byte[] { 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 }, new byte[] { 0, 255, 0, 255, 255, 0, 0, 255 })]
+    [InlineData(TextureFormat.R16Float, new byte[] { 0x00, 0x38, 0x00, 0x3C }, new byte[] { 128, 128, 128, 255, 255, 255, 255, 255 })]
+    [InlineData(TextureFormat.R16G16Float, new byte[] { 0x00, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x38 }, new byte[] { 255, 0, 0, 255, 0, 128, 0, 255 })]
+    [InlineData(TextureFormat.R32Float, new byte[] { 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x3F }, new byte[] { 255, 255, 255, 255, 128, 128, 128, 255 })]
+    [InlineData(TextureFormat.R32G32Float, new byte[] { 0x00, 0x00, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, 0x00, 0x3F }, new byte[] { 255, 0, 0, 255, 0, 128, 0, 255 })]
+    public void DecodeWritesEveryChannelOfEveryTexel(TextureFormat format, byte[] encoded, byte[] expected)
+    {
+        byte[] rgba = Enumerable.Repeat((byte)0xAA, expected.Length).ToArray();
+        PixelCodec.Decode(encoded, format, rgba);
+        Assert.Equal(expected, rgba);
+    }
+
+    [Fact]
     public void ChannelMathRoundsAndClamps()
     {
         Assert.Equal(0, PixelMath.ToByte(float.NaN));
@@ -97,6 +174,45 @@ public sealed class TexturesPixelTests
         // c0 <= c1 selects three-colour mode with transparent index 3.
         byte[] transparent = Bc1.Decode([0x1F, 0x00, 0x00, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF], 4, 4);
         Assert.All(transparent.Chunk(4), p => Assert.Equal(new byte[4], p));
+    }
+
+    [Fact]
+    public void Bc1EdgeBlocksDecodeTheTopLeftOfTheirTexels()
+    {
+        byte[] blocks = Enumerable.Range(0, 32).Select(i => (byte)(i * 97 + 13)).ToArray();
+        byte[] full = Bc1.Decode(blocks, 8, 8);
+        for (int width = 5; width <= 8; width++)
+            for (int height = 5; height <= 8; height++)
+            {
+                byte[] expected = new byte[width * height * 4];
+                for (int y = 0; y < height; y++)
+                    full.AsSpan(y * 32, width * 4).CopyTo(expected.AsSpan(y * width * 4));
+                Assert.Equal(expected, Bc1.Decode(blocks, width, height));
+            }
+    }
+
+    [Fact]
+    public void Bc1EdgeBlocksFitOnlyTheirOwnTexels()
+    {
+        const int width = 5, height = 6;
+        byte[] rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+            {
+                int o = (y * width + x) * 4;
+                bool edge = x == 4 || y >= 4;
+                rgba[o] = edge ? (byte)128 : (byte)(x * 60);
+                rgba[o + 1] = edge ? (byte)128 : (byte)(y * 70);
+                rgba[o + 2] = edge ? (byte)230 : (byte)20;
+                rgba[o + 3] = 255;
+            }
+        byte[] blocks = Bc1.Encode(rgba, width, height);
+        // The gradient in the first block must not leak into the uniform edge blocks.
+        byte[] uniform = [0x1C, 0x84, 0x1C, 0x84, 0, 0, 0, 0];
+        Assert.NotEqual(uniform, blocks[..8]);
+        Assert.Equal(uniform, blocks[8..16]);
+        Assert.Equal(uniform, blocks[16..24]);
+        Assert.Equal(uniform, blocks[24..32]);
     }
 
     [Fact]

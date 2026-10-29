@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace CommonFury.Textures;
 
@@ -27,20 +28,28 @@ public static class Bc1
         Span<Vector3> colours = stackalloc Vector3[16];
         Span<bool> present = stackalloc bool[16], transparent = stackalloc bool[16];
         int blocksX = (width + 3) / 4, blocksY = (height + 3) / 4;
-        for (int by = 0; by < blocksY; by++)
-            for (int bx = 0; bx < blocksX; bx++)
+        for (int by = 0, offset = 0; by < blocksY; by++)
+        {
+            int rows = Math.Min(4, height - by * 4);
+            for (int bx = 0; bx < blocksX; bx++, offset += 8)
             {
-                for (int i = 0; i < 16; i++)
+                int columns = Math.Min(4, width - bx * 4);
+                // The encoder reads nothing else of a texel outside the image, so only its presence is reset.
+                present.Clear();
+                for (int y = 0; y < rows; y++)
                 {
-                    int x = bx * 4 + i % 4, y = by * 4 + i / 4;
-                    present[i] = x < width && y < height;
-                    if (!present[i]) { colours[i] = default; transparent[i] = false; continue; }
-                    var pixel = rgba.Slice((y * width + x) * 4, 4);
-                    colours[i] = new(pixel[0], pixel[1], pixel[2]);
-                    transparent[i] = pixel[3] < 128;
+                    var line = rgba.Slice(((by * 4 + y) * width + bx * 4) * 4, columns * 4);
+                    for (int x = 0; x < columns; x++)
+                    {
+                        int i = y * 4 + x;
+                        present[i] = true;
+                        colours[i] = new(line[x * 4], line[x * 4 + 1], line[x * 4 + 2]);
+                        transparent[i] = line[x * 4 + 3] < 128;
+                    }
                 }
-                EncodeBlock(colours, present, transparent, destination.Slice((by * blocksX + bx) * 8, 8));
+                EncodeBlock(colours, present, transparent, destination.Slice(offset, 8));
             }
+        }
     }
 
     /// <summary>Decodes BC1 blocks into new tightly packed RGBA8 pixels. Three-colour transparent texels decode to zero.</summary>
@@ -49,34 +58,40 @@ public static class Bc1
         if (blocks.Length != TextureLayout.SurfaceSize(width, height, TextureFormat.BC1Unorm))
             throw new ArgumentException("Block length does not match the dimensions.", nameof(blocks));
         byte[] result = new byte[checked(width * height * 4)];
+        // Texels move as whole native-order words, which keeps their byte order on any platform.
+        Span<uint> pixels = MemoryMarshal.Cast<byte, uint>(result.AsSpan());
         Span<byte> palette = stackalloc byte[16];
+        ReadOnlySpan<uint> entries = MemoryMarshal.Cast<byte, uint>(palette);
         int blocksX = (width + 3) / 4, blocksY = (height + 3) / 4;
-        for (int by = 0; by < blocksY; by++)
-            for (int bx = 0; bx < blocksX; bx++)
+        for (int by = 0, offset = 0; by < blocksY; by++)
+        {
+            int rows = Math.Min(4, height - by * 4);
+            for (int bx = 0; bx < blocksX; bx++, offset += 8)
             {
-                var block = blocks.Slice((by * blocksX + bx) * 8, 8);
+                var block = blocks.Slice(offset, 8);
                 Palette(BinaryPrimitives.ReadUInt16LittleEndian(block), BinaryPrimitives.ReadUInt16LittleEndian(block[2..]), palette);
                 uint indices = BinaryPrimitives.ReadUInt32LittleEndian(block[4..]);
-                for (int i = 0; i < 16; i++)
+                for (int y = 0; y < rows; y++, indices >>= 8)
                 {
-                    int x = bx * 4 + i % 4, y = by * 4 + i / 4;
-                    if (x >= width || y >= height) continue;
-                    int index = (int)(indices >> (i * 2)) & 3;
-                    palette.Slice(index * 4, 4).CopyTo(result.AsSpan((y * width + x) * 4, 4));
+                    var line = pixels.Slice((by * 4 + y) * width + bx * 4, Math.Min(4, width - bx * 4));
+                    for (int x = 0; x < line.Length; x++)
+                        line[x] = entries[(int)(indices >> (x * 2)) & 3];
                 }
             }
+        }
         return result;
     }
 
     // Palette entries follow the common integer interpolation of expanded 8-bit endpoints.
     private static void Palette(ushort c0, ushort c1, Span<byte> palette)
     {
-        var a = Expand(c0); var b = Expand(c1);
+        Expand(c0, palette);
+        Expand(c1, palette[4..]);
         for (int channel = 0; channel < 3; channel++)
         {
-            palette[channel] = (byte)a[channel]; palette[4 + channel] = (byte)b[channel];
-            palette[8 + channel] = (byte)(c0 > c1 ? (2 * a[channel] + b[channel]) / 3 : (a[channel] + b[channel]) / 2);
-            palette[12 + channel] = (byte)(c0 > c1 ? (a[channel] + 2 * b[channel]) / 3 : 0);
+            int a = palette[channel], b = palette[4 + channel];
+            palette[8 + channel] = (byte)(c0 > c1 ? (2 * a + b) / 3 : (a + b) / 2);
+            palette[12 + channel] = (byte)(c0 > c1 ? (a + 2 * b) / 3 : 0);
         }
         palette[3] = palette[7] = palette[11] = 255;
         palette[15] = c0 > c1 ? (byte)255 : (byte)0;
@@ -117,7 +132,10 @@ public static class Bc1
     {
         Span<byte> palette = stackalloc byte[16];
         Palette(c0, c1, palette);
-        bool fourColour = c0 > c1;
+        Span<Vector3> entries = stackalloc Vector3[4];
+        for (int candidate = 0; candidate < 4; candidate++)
+            entries[candidate] = new(palette[candidate * 4], palette[candidate * 4 + 1], palette[candidate * 4 + 2]);
+        int candidates = c0 > c1 ? 4 : 3;
         uint indices = 0;
         for (int i = 0; i < 16; i++)
         {
@@ -126,10 +144,9 @@ public static class Bc1
             else if (present[i] && c0 != c1)
             {
                 float best = float.MaxValue;
-                for (int candidate = 0; candidate < (fourColour ? 4 : 3); candidate++)
+                for (int candidate = 0; candidate < candidates; candidate++)
                 {
-                    var entry = new Vector3(palette[candidate * 4], palette[candidate * 4 + 1], palette[candidate * 4 + 2]);
-                    float distance = Vector3.DistanceSquared(entry, colours[i]);
+                    float distance = Vector3.DistanceSquared(entries[candidate], colours[i]);
                     if (distance < best) { best = distance; index = candidate; }
                 }
             }
@@ -178,9 +195,11 @@ public static class Bc1
         return (ushort)(r << 11 | g << 5 | b);
     }
 
-    private static int[] Expand(ushort colour)
+    private static void Expand(ushort colour, Span<byte> entry)
     {
         int r = colour >> 11 & 31, g = colour >> 5 & 63, b = colour & 31;
-        return [r << 3 | r >> 2, g << 2 | g >> 4, b << 3 | b >> 2];
+        entry[0] = (byte)(r << 3 | r >> 2);
+        entry[1] = (byte)(g << 2 | g >> 4);
+        entry[2] = (byte)(b << 3 | b >> 2);
     }
 }

@@ -10,9 +10,22 @@ namespace CommonFury.Textures;
 public static class DdsCodec
 {
     private const uint Magic = 0x20534444, Dx10 = 0x30315844;
+    private const int HeaderSize = 148;
 
     /// <summary>Decodes a DDS image and mip chain, validating its header and payload layout. The payload is copied into an owned array.</summary>
-    public static TextureSurface Read(ReadOnlySpan<byte> data)
+    public static TextureSurface Read(ReadOnlySpan<byte> data) => Read(data, null);
+
+    /// <summary>Decodes a DDS file with the checks of <see cref="Read(ReadOnlySpan{byte})"/>. The payload stays in the
+    /// file buffer, which the surface owns exclusively.</summary>
+    public static TextureSurface Read(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        byte[] file = File.ReadAllBytes(path);
+        return Read(file, file);
+    }
+
+    // A private file buffer passed as owner is referenced by the surface instead of copied.
+    private static TextureSurface Read(ReadOnlySpan<byte> data, byte[]? owner)
     {
         BinaryLayout.Require(data.Length >= 128, "DDS header is truncated.");
         var header = new BinarySpanReader(data);
@@ -84,7 +97,7 @@ public static class DdsCodec
         TextureSurface result;
         try
         {
-            result = new((int)width, (int)height, format, (int)mipCount, data[payloadOffset..].ToArray(),
+            result = new((int)width, (int)height, format, (int)mipCount, owner is null ? data[payloadOffset..].ToArray() : owner.AsMemory(payloadOffset),
                 new TextureShape(volume ? TextureDimension.Volume : cube ? TextureDimension.Cube : TextureDimension.TwoD, volume ? (int)depth : 1, arrays));
         }
         catch (ArgumentException exception) { throw new InvalidDataException("DDS dimensions, mip chain or encoded payload length is invalid.", exception); }
@@ -97,18 +110,35 @@ public static class DdsCodec
         return result;
     }
 
-    /// <inheritdoc cref="Read(ReadOnlySpan{byte})"/>
-    public static TextureSurface Read(string path)
-    {
-        ArgumentNullException.ThrowIfNull(path);
-        return Read(File.ReadAllBytes(path));
-    }
-
     /// <summary>Allocates a canonical DX10 DDS header and copies the encoded payload without transcoding.</summary>
     public static byte[] Write(TextureSurface surface)
     {
         ArgumentNullException.ThrowIfNull(surface);
-        var data = new byte[checked(148 + surface.Data.Length)];
+        var data = new byte[checked(HeaderSize + surface.Data.Length)];
+        WriteHeader(surface, data);
+        surface.Data.Span.CopyTo(data.AsSpan(HeaderSize));
+        return data;
+    }
+
+    /// <summary>Encodes a surface as DDS and replaces the destination file atomically where supported.
+    /// With <paramref name="overwrite"/> false an existing destination is left unchanged and <see cref="IOException"/> is thrown.</summary>
+    public static void Save(string path, TextureSurface surface, bool overwrite = true)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ReadOnlyMemory<byte> payload = surface.Data;
+        // Same size limit as Write, so a saved file always fits the single buffer Read takes.
+        _ = checked(HeaderSize + payload.Length);
+        var header = new byte[HeaderSize];
+        WriteHeader(surface, header);
+        AtomicFile.Write(path, stream =>
+        {
+            stream.Write(header);
+            stream.Write(payload.Span);
+        }, overwrite);
+    }
+
+    private static void WriteHeader(TextureSurface surface, Span<byte> data)
+    {
         var header = new BinarySpanWriter(data);
         TextureFormats.TryUnit(surface.Format, out _, out int unitWidth);
         uint flags = 0x1007U | (unitWidth == 4 ? 0x80000U : 8U) | (surface.MipCount > 1 ? 0x20000U : 0);
@@ -123,26 +153,20 @@ public static class DdsCodec
         header.WriteUInt32((uint)(unitWidth == 4 ? surface.Subresources[0].SlicePitch : surface.Mips[0].RowPitch));
         header.WriteUInt32(volume ? (uint)surface.Shape.Depth : 0);
         header.WriteUInt32((uint)surface.MipCount);
-        header = new(data.AsSpan(76));
+        header = new(data[76..]);
         header.WriteUInt32(32);
         header.WriteUInt32(4);
         header.WriteUInt32(Dx10);
-        header = new(data.AsSpan(108));
+        header = new(data[108..]);
         header.WriteUInt32(0x1000U | (surface.MipCount > 1 ? 0x400008U : 0));
         header.WriteUInt32(cube ? 0xFE00U : volume ? 0x200000U : 0);
         if (!surface.Shape.IsSingleImage)
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(108), BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(108)) | 8U);
-        header = new(data.AsSpan(128));
+            BinaryPrimitives.WriteUInt32LittleEndian(data[108..], BinaryPrimitives.ReadUInt32LittleEndian(data[108..]) | 8U);
+        header = new(data[128..]);
         header.WriteUInt32((uint)surface.Format);
         header.WriteUInt32(volume ? 4U : 3U);
         header.WriteUInt32(cube ? 4U : 0U);
         header.WriteUInt32((uint)surface.Shape.ArraySize);
         header.WriteUInt32(0);
-        surface.Data.Span.CopyTo(data.AsSpan(148));
-        return data;
     }
-
-    /// <summary>Encodes a surface as DDS and replaces the destination file atomically where supported.
-    /// With <paramref name="overwrite"/> false an existing destination is left unchanged and <see cref="IOException"/> is thrown.</summary>
-    public static void Save(string path, TextureSurface surface, bool overwrite = true) => AtomicFile.Write(path, Write(surface), overwrite);
 }
