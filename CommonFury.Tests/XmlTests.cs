@@ -118,4 +118,14 @@ public sealed class XmlTests
         Assert.False(XmlPlatformSelection.Applies("pc", console));
         Assert.True(XmlPlatformSelection.Applies(" ", console));
     }
+
+    [Fact]
+    public void PlatformSelectionKeepsWhitespaceAroundAlternatingSiblings()
+    {
+        byte[] output = XmlPlatformSelection.Select(
+            "<root>\n  <a platform=\"pc\">x<b platform=\"ps4\"/>y</a>\n  <c platform=\"ps4\"><d platform=\"pc\"/></c>\n  <e/>\n  <f platform=\"xboxone\"/>\n  <g platform=\"!ps4\"> <h platform=\"ps4\"/> <i/> </g>\n</root>"u8,
+            XmlPlatformSelection.Pc);
+        Assert.Equal("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root>\n  <a>xy</a>\n  \n  <e />\n  \n  <g>  <i /> </g>\n</root>",
+            Encoding.UTF8.GetString(output));
+    }
 }

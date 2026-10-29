@@ -17,19 +17,39 @@ public static class XmlPlatformSelection
         ArgumentNullException.ThrowIfNull(platforms);
         XDocument document = XmlDocumentCodec.Read(data);
         XElement root = document.Root ?? throw new InvalidDataException("Missing XML root.");
-        foreach (XElement element in root.DescendantsAndSelf().ToArray())
+        XAttribute? selector = root.Attribute("platform");
+        if (selector is not null)
         {
-            XAttribute? platform = element.Attribute("platform");
-            if (platform is null)
-                continue;
-            if (!Applies(platform.Value, platforms))
+            if (!Applies(selector.Value, platforms))
+                throw new InvalidDataException("XML root does not apply to the selected platform.");
+            selector.Remove();
+        }
+        // Each container is rebuilt once from its kept nodes, since removing siblings one by one is quadratic. Removed
+        // subtrees are not visited, and an explicit stack keeps deep documents off the call stack.
+        var containers = new Stack<XElement>();
+        var kept = new List<XNode>();
+        containers.Push(root);
+        while (containers.TryPop(out XElement? container))
+        {
+            bool dropped = false;
+            for (XNode? node = container.FirstNode; node is not null; node = node.NextNode)
             {
-                if (element == root)
-                    throw new InvalidDataException("XML root does not apply to the selected platform.");
-                element.Remove();
+                if (node is XElement element)
+                {
+                    XAttribute? platform = element.Attribute("platform");
+                    if (platform is not null)
+                    {
+                        if (!Applies(platform.Value, platforms))
+                        { dropped = true; continue; }
+                        platform.Remove();
+                    }
+                    containers.Push(element);
+                }
+                kept.Add(node);
             }
-            else
-                platform.Remove();
+            if (dropped)
+                container.ReplaceNodes(kept);
+            kept.Clear();
         }
         return XmlDocumentCodec.Write(document);
     }
