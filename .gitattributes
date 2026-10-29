@@ -10,3 +10,5 @@
 *.canonical binary
 *.dense binary
 *.png binary
+*.flac binary
+*.ogg binary
