@@ -327,6 +327,12 @@ public sealed class ByteSliceStream : Stream
         position += count;
         return count;
     }
+    /// <inheritdoc/>
+    public override int ReadByte()
+    {
+        Span<byte> value = stackalloc byte[1];
+        return Read(value) == 0 ? -1 : value[0];
+    }
     /// <summary>Positions outside the range throw <see cref="IOException"/>.</summary>
     public override long Seek(long offset, SeekOrigin origin)
     {
