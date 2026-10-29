@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using CommonFury.Binary;
 using CommonFury.Numerics;
 
@@ -27,10 +28,10 @@ public static class VertexElementCodec
     /// <exception cref="ArgumentException"><paramref name="data"/> is shorter than one element; nothing is written.</exception>
     public static void Write(Span<byte> data, VertexElementFormat format, Vector4 value)
     {
-        int size = VertexElementFormats.Size(format);
-        if (data.Length < size)
+        // No element exceeds 16 bytes, so longer buffers skip the size lookup; Encode rejects an unknown format itself.
+        if (data.Length < 16 && data.Length < VertexElementFormats.Size(format))
             throw new ArgumentException("Destination buffer is too small.");
-        Write(data, size, format, new ReadOnlySpan<Vector4>(in value));
+        Encode(data, format, value);
     }
 
     /// <summary>Decodes <paramref name="destination"/>.Length elements spaced <paramref name="stride"/> bytes apart from the start of
@@ -59,143 +60,95 @@ public static class VertexElementCodec
     public static void Write(Span<byte> data, int stride, VertexElementFormat format, ReadOnlySpan<Vector4> values)
     {
         RequireLayout(data, stride, format, values.Length);
-        int count = values.Length;
+        for (int i = 0, o = 0; i < values.Length; i++, o += stride)
+            Encode(data[o..], format, values[i]);
+    }
+
+    // One element at the start of a buffer already known to hold it.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Encode(Span<byte> data, VertexElementFormat format, Vector4 value)
+    {
         switch (format)
         {
             case VertexElementFormat.Float:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                    PutSingle(data, o, values[i].X);
+                PutSingle(data, 0, value.X);
                 break;
             case VertexElementFormat.Float2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutSingle(data, o, value.X);
-                    PutSingle(data, o + 4, value.Y);
-                }
+                PutSingle(data, 0, value.X);
+                PutSingle(data, 4, value.Y);
                 break;
             case VertexElementFormat.Float3:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutSingle(data, o, value.X);
-                    PutSingle(data, o + 4, value.Y);
-                    PutSingle(data, o + 8, value.Z);
-                }
+                PutSingle(data, 0, value.X);
+                PutSingle(data, 4, value.Y);
+                PutSingle(data, 8, value.Z);
                 break;
             case VertexElementFormat.Float4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutSingle(data, o, value.X);
-                    PutSingle(data, o + 4, value.Y);
-                    PutSingle(data, o + 8, value.Z);
-                    PutSingle(data, o + 12, value.W);
-                }
+                PutSingle(data, 0, value.X);
+                PutSingle(data, 4, value.Y);
+                PutSingle(data, 8, value.Z);
+                PutSingle(data, 12, value.W);
                 break;
             case VertexElementFormat.Half:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                    PutHalf(data, o, values[i].X);
+                PutHalf(data, 0, value.X);
                 break;
             case VertexElementFormat.Half2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutHalf(data, o, value.X);
-                    PutHalf(data, o + 2, value.Y);
-                }
+                PutHalf(data, 0, value.X);
+                PutHalf(data, 2, value.Y);
                 break;
             case VertexElementFormat.Half3:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutHalf(data, o, value.X);
-                    PutHalf(data, o + 2, value.Y);
-                    PutHalf(data, o + 4, value.Z);
-                }
+                PutHalf(data, 0, value.X);
+                PutHalf(data, 2, value.Y);
+                PutHalf(data, 4, value.Z);
                 break;
             case VertexElementFormat.Half4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    PutHalf(data, o, value.X);
-                    PutHalf(data, o + 2, value.Y);
-                    PutHalf(data, o + 4, value.Z);
-                    PutHalf(data, o + 6, value.W);
-                }
+                PutHalf(data, 0, value.X);
+                PutHalf(data, 2, value.Y);
+                PutHalf(data, 4, value.Z);
+                PutHalf(data, 6, value.W);
                 break;
             case VertexElementFormat.Byte4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    RequireByte4(value);
-                    data[o] = (byte)value.X;
-                    data[o + 1] = (byte)value.Y;
-                    data[o + 2] = (byte)value.Z;
-                    data[o + 3] = (byte)value.W;
-                }
+                RequireByte4(value);
+                data[0] = (byte)value.X;
+                data[1] = (byte)value.Y;
+                data[2] = (byte)value.Z;
+                data[3] = (byte)value.W;
                 break;
             case VertexElementFormat.UNorm8x4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                    BinaryPrimitives.WriteUInt32LittleEndian(data[o..], PackedVectors.EncodeUNorm8(values[i]));
+                BinaryPrimitives.WriteUInt32LittleEndian(data, PackedVectors.EncodeUNorm8(value));
                 break;
             case VertexElementFormat.SNorm8x4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    BinaryPrimitives.WriteUInt32LittleEndian(data[o..], Signed(value.X) | (Signed(value.Y) << 8) | (Signed(value.Z) << 16) | (Signed(value.W) << 24));
-                }
+                BinaryPrimitives.WriteUInt32LittleEndian(data, Signed(value.X) | (Signed(value.Y) << 8) | (Signed(value.Z) << 16) | (Signed(value.W) << 24));
                 break;
             case VertexElementFormat.UNorm10x3A2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                    BinaryPrimitives.WriteUInt32LittleEndian(data[o..], PackedVectors.EncodeUNorm1010102(values[i]));
+                BinaryPrimitives.WriteUInt32LittleEndian(data, PackedVectors.EncodeUNorm1010102(value));
                 break;
             case VertexElementFormat.BiasedUNorm10x3A2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    BinaryPrimitives.WriteUInt32LittleEndian(data[o..],
-                        Biased(value.X, 1023) | (Biased(value.Y, 1023) << 10) | (Biased(value.Z, 1023) << 20) | (Biased(value.W, 3) << 30));
-                }
+                BinaryPrimitives.WriteUInt32LittleEndian(data,
+                    Biased(value.X, 1023) | (Biased(value.Y, 1023) << 10) | (Biased(value.Z, 1023) << 20) | (Biased(value.W, 3) << 30));
                 break;
             case VertexElementFormat.UNorm16:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                    BinaryPrimitives.WriteUInt16LittleEndian(data[o..], (ushort)PackedVectors.EncodeUNorm(values[i].X, 65535));
+                BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)PackedVectors.EncodeUNorm(value.X, 65535));
                 break;
             case VertexElementFormat.UNorm16x2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    BinaryPrimitives.WriteUInt16LittleEndian(data[o..], (ushort)PackedVectors.EncodeUNorm(value.X, 65535));
-                    BinaryPrimitives.WriteUInt16LittleEndian(data[(o + 2)..], (ushort)PackedVectors.EncodeUNorm(value.Y, 65535));
-                }
+                BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)PackedVectors.EncodeUNorm(value.X, 65535));
+                BinaryPrimitives.WriteUInt16LittleEndian(data[2..], (ushort)PackedVectors.EncodeUNorm(value.Y, 65535));
                 break;
             case VertexElementFormat.UNorm8x2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    data[o] = (byte)PackedVectors.EncodeUNorm(value.X, 255);
-                    data[o + 1] = (byte)PackedVectors.EncodeUNorm(value.Y, 255);
-                }
+                data[0] = (byte)PackedVectors.EncodeUNorm(value.X, 255);
+                data[1] = (byte)PackedVectors.EncodeUNorm(value.Y, 255);
                 break;
             case VertexElementFormat.Int16x2:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    BinaryPrimitives.WriteInt16LittleEndian(data[o..], Integer16(value.X));
-                    BinaryPrimitives.WriteInt16LittleEndian(data[(o + 2)..], Integer16(value.Y));
-                }
+                BinaryPrimitives.WriteInt16LittleEndian(data, Integer16(value.X));
+                BinaryPrimitives.WriteInt16LittleEndian(data[2..], Integer16(value.Y));
                 break;
             case VertexElementFormat.Int16x4:
-                for (int i = 0, o = 0; i < count; i++, o += stride)
-                {
-                    Vector4 value = values[i];
-                    BinaryPrimitives.WriteInt16LittleEndian(data[o..], Integer16(value.X));
-                    BinaryPrimitives.WriteInt16LittleEndian(data[(o + 2)..], Integer16(value.Y));
-                    BinaryPrimitives.WriteInt16LittleEndian(data[(o + 4)..], Integer16(value.Z));
-                    BinaryPrimitives.WriteInt16LittleEndian(data[(o + 6)..], Integer16(value.W));
-                }
+                BinaryPrimitives.WriteInt16LittleEndian(data, Integer16(value.X));
+                BinaryPrimitives.WriteInt16LittleEndian(data[2..], Integer16(value.Y));
+                BinaryPrimitives.WriteInt16LittleEndian(data[4..], Integer16(value.Z));
+                BinaryPrimitives.WriteInt16LittleEndian(data[6..], Integer16(value.W));
                 break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(format));
         }
     }
 
