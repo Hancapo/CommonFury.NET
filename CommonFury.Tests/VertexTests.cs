@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using CommonFury.Binary;
 using CommonFury.Vertices;
 using Xunit;
 
@@ -158,6 +159,83 @@ public sealed class VertexTests
         Assert.Throws<ArgumentException>(() => new Gen9VertexDeclaration([new(VertexSemantic.Position, 0, 4, 0)], 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => Gen9VertexDeclaration.Pack(8, 0x400000));
     }
+
+    [Fact]
+    public void BulkReadMatchesPerElementReadsForEveryFormatAndByteOrder()
+    {
+        var random = new Random(3);
+        foreach (VertexElementFormat format in Enum.GetValues<VertexElementFormat>())
+            foreach (ByteOrder order in new[] { ByteOrder.Little, ByteOrder.Big })
+                foreach (int padding in new[] { 0, 1, 3, 8 })
+                {
+                    int size = VertexElementFormats.Size(format), stride = size + padding, count = 9;
+                    var data = new byte[(count - 1) * stride + size];
+                    random.NextBytes(data);
+                    var expected = new Vector4[count];
+                    for (int i = 0; i < count; i++)
+                        expected[i] = VertexElementCodec.Read(data.AsSpan(i * stride, size), format, order);
+                    var actual = new Vector4[count];
+                    VertexElementCodec.Read(data, stride, format, actual, order);
+                    Assert.Equal(expected.Select(Bits), actual.Select(Bits));
+                }
+    }
+
+    [Fact]
+    public void BulkWriteMatchesPerElementWritesUpToTheFirstInvalidValue()
+    {
+        var random = new Random(5);
+        float[] pool = [0, -0f, 1, -1, 0.5f, 255, 256, -1.5f, 1e-3f, 65504, 70000, float.NaN, float.PositiveInfinity, 32767, -32768, 32768, 0.1f, 127];
+        foreach (VertexElementFormat format in Enum.GetValues<VertexElementFormat>())
+            for (int trial = 0; trial < 100; trial++)
+            {
+                int size = VertexElementFormats.Size(format), stride = size + random.Next(0, 5), count = random.Next(1, 8);
+                var values = new Vector4[count];
+                for (int i = 0; i < count; i++)
+                    values[i] = new(Value(), Value(), Value(), Value());
+                var expected = new byte[(count - 1) * stride + size];
+                random.NextBytes(expected);
+                var actual = (byte[])expected.Clone();
+                Exception? expectedError = Record.Exception(() =>
+                {
+                    for (int i = 0; i < count; i++)
+                        VertexElementCodec.Write(expected.AsSpan(i * stride, size), format, values[i]);
+                });
+                Exception? actualError = Record.Exception(() => VertexElementCodec.Write(actual, stride, format, values));
+                Assert.Equal(expectedError?.GetType(), actualError?.GetType());
+                Assert.Equal(expectedError?.Message, actualError?.Message);
+                Assert.Equal(expected, actual); // padding bytes and the partial output before a failure agree
+            }
+        float Value() => random.Next(3) == 0 ? (float)(random.NextDouble() * 2 - 1) : pool[random.Next(pool.Length)];
+    }
+
+    [Fact]
+    public void BulkCodecUsesStridesAndChecksLayoutBeforeWriting()
+    {
+        byte[] data = [0x3F, 0x80, 0, 0, 0x40, 0, 0, 0, 0xEE, 0xEE, 0xC0, 0x40, 0, 0, 0x41, 0, 0, 0];
+        var decoded = new Vector4[2];
+        VertexElementCodec.Read(data, 10, VertexElementFormat.Float2, decoded, ByteOrder.Big);
+        Assert.Equal(new[] { new Vector4(1, 2, 0, 0), new Vector4(-3, 8, 0, 0) }, decoded);
+
+        var encoded = Enumerable.Repeat((byte)0xEE, 10).ToArray();
+        VertexElementCodec.Write(encoded, 6, VertexElementFormat.Int16x2, [new(1, -2, 9, 9), new(-32768, 32767, 0, 0)]);
+        Assert.Equal(new byte[] { 1, 0, 0xFE, 0xFF, 0xEE, 0xEE, 0x00, 0x80, 0xFF, 0x7F }, encoded);
+
+        var untouched = new Vector4[2];
+        Assert.Equal("stride", Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Read(data, 7, VertexElementFormat.Float2, untouched)).ParamName);
+        Assert.Equal("data", Assert.Throws<ArgumentException>(() => VertexElementCodec.Read(data.AsSpan(0, 17), 10, VertexElementFormat.Float2, untouched)).ParamName);
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Read(data, 10, (VertexElementFormat)99, untouched));
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Read(data, 10, VertexElementFormat.Float2, untouched, (ByteOrder)7));
+        Assert.All(untouched, value => Assert.Equal(Vector4.Zero, value));
+        var small = Enumerable.Repeat((byte)0xEE, 9).ToArray();
+        Assert.Equal("data", Assert.Throws<ArgumentException>(() => VertexElementCodec.Write(small, 6, VertexElementFormat.Int16x2, [Vector4.Zero, Vector4.Zero])).ParamName);
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(small, 3, VertexElementFormat.Int16x2, [Vector4.Zero]));
+        Assert.All(small, value => Assert.Equal(0xEE, value));
+        VertexElementCodec.Read([], 4, VertexElementFormat.Float, []);
+        VertexElementCodec.Write([], 4, VertexElementFormat.Float, []);
+    }
+
+    private static (uint, uint, uint, uint) Bits(Vector4 value) => (BitConverter.SingleToUInt32Bits(value.X), BitConverter.SingleToUInt32Bits(value.Y),
+        BitConverter.SingleToUInt32Bits(value.Z), BitConverter.SingleToUInt32Bits(value.W));
 
     // Independent decoder of biased 10/10/10/2 normals, used as the oracle.
     private static Vector4 ReferencePackedNormal(uint value) => new(
