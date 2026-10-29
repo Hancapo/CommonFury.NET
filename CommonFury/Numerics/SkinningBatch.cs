@@ -8,8 +8,11 @@ namespace CommonFury.Numerics;
 public sealed class SkinningBatch
 {
     private readonly Vector3[] positions, normals;
-    private readonly int[] indices;
-    private readonly float[] weights;
+    // Vertex v blends influences [influenceStarts[v], influenceStarts[v + 1]): its nonzero weights in lane order, already
+    // divided by the weight sum when normalizing. A vertex without influences keeps its source values.
+    private readonly int[] influenceStarts, influenceIndices;
+    private readonly float[] influenceFactors;
+    private readonly int maximumIndex = -1;
 
     /// <summary>Copies the inputs. Influences are vertex-major, <paramref name="influencesPerVertex"/> per vertex;
     /// empty <paramref name="normals"/> skips normal deformation.</summary>
@@ -31,8 +34,30 @@ public sealed class SkinningBatch
                 throw new ArgumentException("Influences need nonnegative indices and finite nonnegative weights.");
         this.positions = positions.ToArray();
         this.normals = normals.ToArray();
-        this.indices = indices.ToArray();
-        this.weights = weights.ToArray();
+        influenceStarts = new int[positions.Length + 1];
+        influenceIndices = new int[indices.Length];
+        influenceFactors = new float[indices.Length];
+        int count = 0;
+        for (int vertex = 0; vertex < positions.Length; vertex++)
+        {
+            var vertexWeights = weights.Slice(vertex * influencesPerVertex, influencesPerVertex);
+            double sum = SkinningMath.WeightSum(vertexWeights);
+            if (sum > SkinningMath.MinimumWeightSum)
+            {
+                for (int lane = 0; lane < influencesPerVertex; lane++)
+                {
+                    if (vertexWeights[lane] == 0)
+                        continue;
+                    int index = indices[vertex * influencesPerVertex + lane];
+                    maximumIndex = Math.Max(maximumIndex, index);
+                    influenceIndices[count] = index;
+                    influenceFactors[count++] = (float)(vertexWeights[lane] / (normalizeWeights ? sum : 1));
+                }
+            }
+            influenceStarts[vertex + 1] = count;
+        }
+        Array.Resize(ref influenceIndices, count);
+        Array.Resize(ref influenceFactors, count);
         InfluencesPerVertex = influencesPerVertex;
         NormalizeWeights = normalizeWeights;
     }
@@ -56,26 +81,21 @@ public sealed class SkinningBatch
             throw new ArgumentException("Skinning outputs must not overlap matrices or each other.");
         foreach (var matrix in matrices)
             TransformMath.RequireFinite(matrix);
+        if (maximumIndex >= matrices.Length)
+            throw new ArgumentException("Weighted bone index is outside the matrix array.", nameof(matrices));
         for (int vertex = 0; vertex < VertexCount; vertex++)
         {
-            var vertexWeights = weights.AsSpan(vertex * InfluencesPerVertex, InfluencesPerVertex);
-            if (SkinningMath.WeightSum(vertexWeights) <= SkinningMath.MinimumWeightSum)
-                continue;
-            for (int lane = 0; lane < InfluencesPerVertex; lane++)
-                if (vertexWeights[lane] > 0 && indices[vertex * InfluencesPerVertex + lane] >= matrices.Length)
-                    throw new ArgumentException("Weighted bone index is outside the matrix array.", nameof(matrices));
-        }
-        for (int vertex = 0; vertex < VertexCount; vertex++)
-        {
-            var vertexWeights = weights.AsSpan(vertex * InfluencesPerVertex, InfluencesPerVertex);
-            if (SkinningMath.WeightSum(vertexWeights) <= SkinningMath.MinimumWeightSum)
+            int start = influenceStarts[vertex], end = influenceStarts[vertex + 1];
+            if (start == end)
             {
                 outputPositions[vertex] = positions[vertex];
                 if (HasNormals)
                     outputNormals[vertex] = normals[vertex];
                 continue;
             }
-            var transform = SkinningMath.Blend(vertexWeights, indices.AsSpan(vertex * InfluencesPerVertex, InfluencesPerVertex), matrices, NormalizeWeights);
+            Matrix4x4 transform = default;
+            for (int i = start; i < end; i++)
+                transform += matrices[influenceIndices[i]] * influenceFactors[i];
             outputPositions[vertex] = Vector3.Transform(positions[vertex], transform);
             if (HasNormals)
             {
