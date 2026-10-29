@@ -139,14 +139,18 @@ public sealed partial class HeightMap<T> where T : unmanaged, INumber<T>
             throw new ArgumentException("Query bounds must be finite and ordered.");
         int Column(float x, bool upper) => (int)Math.Clamp(upper ? Math.Ceiling(((double)x - Bounds.Minimum.X) * Columns / ((double)Bounds.Maximum.X - Bounds.Minimum.X)) : Math.Floor(((double)x - Bounds.Minimum.X) * Columns / ((double)Bounds.Maximum.X - Bounds.Minimum.X)), 0, Columns);
         int Row(float y, bool upper) => (int)Math.Clamp(upper ? Math.Ceiling(((double)y - Bounds.Minimum.Y) * Rows / ((double)Bounds.Maximum.Y - Bounds.Minimum.Y)) : Math.Floor(((double)y - Bounds.Minimum.Y) * Rows / ((double)Bounds.Maximum.Y - Bounds.Minimum.Y)), 0, Rows);
+        int firstRow = Row(minimum.Y, false), endRow = Row(maximum.Y, true);
+        int firstColumn = Column(minimum.X, false), endColumn = Column(maximum.X, true);
         float lower = float.PositiveInfinity, upper = float.NegativeInfinity;
-        for (int row = Row(minimum.Y, false); row < Row(maximum.Y, true); row++)
-            for (int column = Column(minimum.X, false); column < Column(maximum.X, true); column++)
-                if (GetHeightRange(column, row) is { } range)
-                {
-                    lower = Math.Min(lower, range.Minimum);
-                    upper = Math.Max(upper, range.Maximum);
-                }
+        for (int row = firstRow; row < endRow; row++)
+            for (int index = row * Columns + firstColumn, end = row * Columns + endColumn; index < end; index++)
+            {
+                T low = MinimumCells[index], high = MaximumCells[index];
+                if (low == T.Zero && high == T.Zero)
+                    continue;
+                lower = Math.Min(lower, Decode(low));
+                upper = Math.Max(upper, Decode(high));
+            }
         return float.IsPositiveInfinity(lower) ? null : (lower, upper);
     }
 

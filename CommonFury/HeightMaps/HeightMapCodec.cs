@@ -79,17 +79,21 @@ public static class HeightMapCodec
         {
             water = new bool[count];
             ReadOnlySpan<byte> mask = data[^maskSize..];
-            for (int i = 0; i < count; i++)
-                water[i] = (mask[i / 8] & (1 << (i % 8))) != 0;
+            for (int i = 0; i < count; i += 8)
+            {
+                int bits = mask[i >> 3];
+                Span<bool> cells = water.AsSpan(i, Math.Min(8, count - i));
+                for (int bit = 0; bit < cells.Length; bit++)
+                    cells[bit] = (bits >> bit & 1) != 0;
+            }
         }
         var bounds = new HeightMapBounds(new(Endian.F32(data[16..], order), Endian.F32(data[20..], order), Endian.F32(data[24..], order)),
             new(Endian.F32(data[28..], order), Endian.F32(data[32..], order), Endian.F32(data[36..], order)));
         var boundsIssues = new List<Diagnostic>();
         bounds.Validate(boundsIssues, null);
         new ValidationReport(boundsIssues).ThrowIfInvalid();
-        var result = new HeightMap<T>(columns, rows, bounds, minimum, maximum)
+        var result = new HeightMap<T>(columns, rows, bounds, minimum, maximum, water)
         {
-            WaterCells = water,
             Version = data[4],
             Reserved = Endian.U16(data[6..], order),
             Flags = flags,
@@ -169,9 +173,16 @@ public static class HeightMapCodec
         if (map.WaterCells is not null)
         {
             Span<byte> mask = result.AsSpan(HeaderSize + payloadSize);
-            for (int i = 0; i < map.WaterCells.Length; i++)
-                if (map.WaterCells[i])
-                    mask[i / 8] |= (byte)(1 << (i % 8));
+            bool[] water = map.WaterCells;
+            for (int i = 0; i < water.Length; i += 8)
+            {
+                ReadOnlySpan<bool> cells = water.AsSpan(i, Math.Min(8, water.Length - i));
+                int bits = 0;
+                for (int bit = 0; bit < cells.Length; bit++)
+                    if (cells[bit])
+                        bits |= 1 << bit;
+                mask[i >> 3] = (byte)bits;
+            }
         }
         return result;
     }
