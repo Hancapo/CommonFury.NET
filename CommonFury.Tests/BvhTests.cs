@@ -60,6 +60,50 @@ public sealed class BvhTests
         }
     }
 
+    [Theory]
+    [InlineData(4000, false, false)]
+    [InlineData(4000, true, false)]
+    [InlineData(1500, false, true)]
+    [InlineData(1500, true, true)]
+    public void ShuffledAndRepeatedIndicesMatchTheReference(int count, bool shuffle, bool repeat)
+    {
+        var random = new Random(count + (shuffle ? 1 : 0));
+        BvhItem[] items = RandomItems(random, count, sparse: true);
+        if (repeat)
+            items = items.Select(item => item with { Index = item.Index / 3 }).ToArray();
+        if (shuffle)
+            random.Shuffle(items);
+        foreach (var (options, childIndices) in new[] { (UpperMedianGeometry, false), (UpperMedianComposite, true) })
+        {
+            var expected = UpperMedianReference.Create(items, options.LeafSize, childIndices);
+            BvhBuild actual = BvhBuilder.Build(items, options);
+            Assert.Equal(expected.Nodes, actual.Nodes);
+            Assert.Equal(expected.Order, actual.Order);
+        }
+    }
+
+    [Theory]
+    [InlineData(BvhLeafIds.OrderPosition)]
+    [InlineData(BvhLeafIds.FirstItemIndex)]
+    public void EqualCentersOnTheSplitAxisOrderByIndex(BvhLeafIds leafIds)
+    {
+        Aabb3[] boxes = new float[] { 2, 0, 2, 1, 0, 2 }.Select(x => Aabb3.FromCenterSize(new(x, 0, 0), Vector3.One)).ToArray();
+        BvhBuild build = BvhBuilder.Build(boxes, new(2, BvhSplit.UpperMedian, leafIds));
+        static Aabb3 AlongX(float minimum, float maximum) => new(new(minimum, -0.5f, -0.5f), new(maximum, 0.5f, 0.5f));
+        bool positions = leafIds == BvhLeafIds.OrderPosition;
+        Assert.Equal(new BvhNode[]
+        {
+            new(AlongX(-0.5f, 2.5f), 7, 0),
+            new(AlongX(-0.5f, 1.5f), 3, 0),
+            new(AlongX(-0.5f, 0.5f), (ushort)(positions ? 0 : 1), 2),
+            new(AlongX(0.5f, 1.5f), (ushort)(positions ? 2 : 3), 1),
+            new(AlongX(1.5f, 2.5f), 3, 0),
+            new(AlongX(1.5f, 2.5f), (ushort)(positions ? 3 : 0), 2),
+            new(AlongX(1.5f, 2.5f), 5, 1)
+        }, build.Nodes);
+        Assert.Equal(new[] { 1, 4, 3, 0, 2, 5 }, build.Order);
+    }
+
     [Fact]
     public void EightGeometryItemsMakeOneBranchAndTwoLeaves()
     {
