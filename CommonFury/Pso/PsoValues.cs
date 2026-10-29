@@ -155,7 +155,7 @@ public sealed class PsoNode
 /// <summary>A PSO file, its decoded root graph and the reading diagnostics.</summary>
 public sealed record PsoDocument(PsoFile File, PsoNode Root, ValidationReport Report);
 
-/// <summary>Limits on graph depth, decoded nodes and array elements, and the field error policy.</summary>
+/// <summary>Limits on graph depth, decoded nodes, array elements and text bytes, and the field error policy.</summary>
 public sealed class PsoReadOptions
 {
     public int MaximumDepth { get; }
@@ -163,18 +163,24 @@ public sealed class PsoReadOptions
     public int MaximumNodes { get; }
     /// <summary>Maximum total number of array elements and map entries.</summary>
     public int MaximumArrayElements { get; }
+    /// <summary>Maximum total bytes of decoded text, counted per occurrence, so text referenced twice counts twice. It also
+    /// bounds the search for each terminator.</summary>
+    public int MaximumTextBytes { get; }
     /// <summary>When true, a field whose bytes are malformed or exceed a limit becomes <see cref="PsoMalformed"/> with an
     /// error diagnostic, and the remaining fields are still decoded. When false (default), reading throws.</summary>
     public bool ContinueOnFieldErrors { get; }
     /// <summary>All limits must be positive.</summary>
-    public PsoReadOptions(int maximumDepth = 128, int maximumNodes = 100_000, int maximumArrayElements = 1_000_000, bool continueOnFieldErrors = false)
+    public PsoReadOptions(int maximumDepth = 128, int maximumNodes = 100_000, int maximumArrayElements = 1_000_000, bool continueOnFieldErrors = false,
+        int maximumTextBytes = 64 << 20)
     {
         ContinueOnFieldErrors = continueOnFieldErrors;
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumDepth);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumNodes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumArrayElements);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumTextBytes);
         MaximumDepth = maximumDepth;
         MaximumNodes = maximumNodes;
         MaximumArrayElements = maximumArrayElements;
+        MaximumTextBytes = maximumTextBytes;
     }
 }

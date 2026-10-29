@@ -8,7 +8,7 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
     private readonly Dictionary<(uint Type, PsoPointer Pointer), PsoNode> nodes = [];
     private readonly List<Diagnostic> diagnostics = new();
     private readonly bool wide = file.PointerLayout == PsoPointerLayout.BlockId20;
-    private int arrayElements;
+    private int arrayElements, textBytes;
 
     public PsoDocument Read()
     {
@@ -140,10 +140,19 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
         ReadOnlySpan<byte> bytes = file.Slice(pointer, limit ?? (block.Length - pointer.Offset));
         return Text(bytes);
     }
-    private static PsoText Text(ReadOnlySpan<byte> bytes)
+    // Pointer text runs to the end of its block when unterminated, and many pointers may share one block, so the budget
+    // bounds the terminator search as well as the copy.
+    private PsoText Text(ReadOnlySpan<byte> bytes)
     {
-        int end = bytes.IndexOf((byte)0);
-        return new(end < 0 ? bytes : bytes[..end]);
+        int remaining = options.MaximumTextBytes - textBytes;
+        int window = bytes.Length > remaining ? remaining + 1 : bytes.Length;
+        int length = bytes[..window].IndexOf((byte)0);
+        if (length < 0)
+            length = window;
+        if (length > remaining)
+            throw new InvalidDataException("PSO text exceeds the configured limit.");
+        textBytes += length;
+        return new(bytes[..length]);
     }
 
     private PsoValue String(PsoEntry entry, ReadOnlySpan<byte> data, PageState? pages)
