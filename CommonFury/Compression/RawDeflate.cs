@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Compression;
 using CommonFury.Binary;
 
@@ -24,18 +25,27 @@ public static class RawDeflate
         using var inflater = new DeflateStream(input, CompressionMode.Decompress);
         if (zeroHistory)
             SkipHistory(inflater);
-        using var output = new MemoryStream(Math.Min(maximumLength, 64 * 1024));
-        var buffer = new byte[(int)Math.Clamp((long)maximumLength + 1, 1, 64 * 1024)];
+        var output = new byte[Math.Min(maximumLength, 64 * 1024)];
+        int length = 0;
         while (true)
         {
-            int count = inflater.Read(buffer.AsSpan(0, (int)Math.Min(buffer.Length, maximumLength - output.Length + 1)));
-            BinaryLayout.Require(count <= maximumLength - output.Length, "Decoded DEFLATE output exceeds its size limit.");
+            if (length == output.Length)
+            {
+                if (length == maximumLength)
+                {
+                    Span<byte> probe = stackalloc byte[1];
+                    BinaryLayout.Require(inflater.Read(probe) == 0, "Decoded DEFLATE output exceeds its size limit.");
+                    break;
+                }
+                Array.Resize(ref output, (int)Math.Min(maximumLength, 2L * length));
+            }
+            int count = inflater.Read(output.AsSpan(length));
             if (count == 0)
                 break;
-            output.Write(buffer, 0, count);
+            length += count;
         }
         BinaryLayout.Require(input.HasReadFinalByte, "Trailing data after the DEFLATE stream.");
-        return output.ToArray();
+        return length == output.Length ? output : output[..length];
     }
 
     /// <summary>Decodes exactly <paramref name="length"/> bytes.</summary>
@@ -105,8 +115,9 @@ public static class RawDeflate
 
     private static void SkipHistory(DeflateStream inflater)
     {
-        var history = new byte[HistorySize];
-        inflater.ReadExactly(history);
+        byte[] history = ArrayPool<byte>.Shared.Rent(HistorySize);
+        inflater.ReadExactly(history.AsSpan(0, HistorySize));
+        ArrayPool<byte>.Shared.Return(history);
     }
 
     // DeflateStream buffers input and exposes neither its terminal state nor unused bytes.
