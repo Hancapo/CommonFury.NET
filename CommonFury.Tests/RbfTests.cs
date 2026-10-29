@@ -247,4 +247,46 @@ public sealed class RbfTests
         root.Attributes.Add(new RbfStringValue("wide", "é"));
         Assert.Contains(new RbfDocument(root).Validate().Diagnostics, d => d.Code == RbfDiagnosticCodes.Text);
     }
+
+    [Fact]
+    public void ValidationReportsEveryIssueAtItsRecordPath()
+    {
+        var root = new RbfStructure("root");
+        root.Attributes.Add(new RbfInt32Value("a", 1));
+        root.Attributes.Add(new RbfVector3Value("v", default));
+        root.Attributes.Add(new RbfStructure("s"));
+        root.Attributes.Add(null!);
+        root.Attributes.Add(new RbfStringValue("t", "é"));
+        root.Attributes.Add(new RbfInt32Value("ñ", 2));
+        root.Children.Add(new RbfStringValue("a", "x"));
+        var child = new RbfStructure("child");
+        child.Attributes.Add(new RbfInt32Value("ñ", 3));
+        child.Children.Add(new RbfBytes([1]));
+        child.Children.Add(new RbfInt32Value("a", 4));
+        root.Children.Add(child);
+        root.Children.Add(root);
+        var document = new RbfDocument(root);
+        document.LeadingComments.Add(new RbfComment([2]));
+        document.TrailingComments.Add(new RbfComment([3]));
+        document.TrailingComments.Add(null!);
+
+        string[] attributes =
+        [
+            "rbf.attribute.type Root.Attributes[1]", "rbf.attribute.type Root.Attributes[2]", "rbf.node.null Root.Attributes[3]",
+            "rbf.text Root.Attributes[4].Value", "rbf.name Root.Attributes[5].Name", "rbf.string.element Root.Children[0]"
+        ];
+        Assert.Equal([.. attributes, "rbf.name Root.Children[1].Attributes[0].Name", "rbf.content.mixed Root.Children[1].Children",
+            "rbf.structure.cycle Root.Children[2]", "rbf.node.null TrailingComments[1]"], Describe(document.Validate()));
+        Assert.Equal([.. attributes, "rbf.limit.nodes Root.Children[1]"], Describe(document.Validate(new RbfLimits(maximumNodes: 9))));
+        Assert.Equal([.. attributes, "rbf.limit.depth Root.Children[1]", "rbf.limit.depth Root.Children[2]", "rbf.node.null TrailingComments[1]"],
+            Describe(document.Validate(new RbfLimits(maximumDepth: 1))));
+        Assert.Equal(["rbf.attribute.type Root.Attributes[1]", "rbf.limit.names Root.Attributes[1]"],
+            Describe(document.Validate(new RbfLimits(maximumNames: 2))));
+        Assert.Equal(["rbf.attribute.type Root.Attributes[1]", "rbf.limit.bytes Root.Attributes[1]"],
+            Describe(document.Validate(new RbfLimits(maximumBytes: 40))));
+        Assert.Equal(["rbf.limit.bytes LeadingComments[0]"], Describe(document.Validate(new RbfLimits(maximumBytes: 5))));
+        Assert.Equal(["rbf.limit.nodes Root.Attributes"], Describe(document.Validate(new RbfLimits(maximumNodes: 3))));
+
+        static string[] Describe(ValidationReport report) => [.. report.Diagnostics.Select(d => $"{d.Code} {d.Path}")];
+    }
 }

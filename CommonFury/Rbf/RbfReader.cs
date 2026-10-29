@@ -58,8 +58,10 @@ internal ref struct RbfReader
         uint fullId = record == RbfEncoding.Extended ? reader.ReadUInt32() : record;
         uint nameId = fullId & (record == RbfEncoding.Extended ? 0x0FFFFFFFU : 0x0FFFU);
         var type = (RbfRecordType)(fullId >> (record == RbfEncoding.Extended ? 28 : 12));
-        BinaryLayout.Require(type <= RbfRecordType.String, $"Unsupported RBF record type 0x{(byte)type:X}.");
-        BinaryLayout.Require(nameId <= names.Count, $"Invalid RBF name index {nameId}.");
+        if (type > RbfRecordType.String)
+            throw new InvalidDataException($"Unsupported RBF record type 0x{(byte)type:X}.");
+        if (nameId > names.Count)
+            throw new InvalidDataException($"Invalid RBF name index {nameId}.");
         if (nameId == names.Count)
         {
             BinaryLayout.Require(names.Count < this.limits.MaximumNames, "RBF exceeds the name budget.");

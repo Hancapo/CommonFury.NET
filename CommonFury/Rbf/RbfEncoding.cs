@@ -54,19 +54,17 @@ internal static class RbfEncoding
         return Encoding.ASCII.GetString(bytes);
     }
 
-    internal static void WriteText(ref BinarySpanWriter writer, string text)
+    // Encodes straight into output, the storage that writer wraps.
+    internal static void WriteText(ref BinarySpanWriter writer, Span<byte> output, string text)
     {
         writer.WriteUInt16(checked((ushort)text.Length));
-        writer.WriteBytes(Encoding.ASCII.GetBytes(text));
+        Encoding.ASCII.GetBytes(text, output.Slice(writer.Position, text.Length));
+        writer.Seek(writer.Position + text.Length);
     }
 
     // Accepts exactly what ReadText accepts, so every readable document can be written back. Text is length-prefixed,
     // so NUL bytes are representable and preserved.
-    internal static void ValidateAscii(string? text, List<Diagnostic> issues, string code, string path)
-    {
-        if (text is null || text.Length > ushort.MaxValue || text.Any(c => c > '\x7F'))
-            issues.Add(new(code, "Text must be non-null ASCII that fits a 16-bit byte count.", path));
-    }
+    internal static bool IsValidText(string? text) => text is not null && text.Length <= ushort.MaxValue && Ascii.IsValid(text);
 
     internal static RbfRecordType TypeOf(RbfNamedNode node) => node switch
     {
