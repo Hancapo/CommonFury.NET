@@ -27,17 +27,17 @@ public static class RawDeflate
             SkipHistory(inflater);
         var output = new byte[Math.Min(maximumLength, 64 * 1024)];
         int length = 0;
+        Span<byte> probe = stackalloc byte[1];
         while (true)
         {
             if (length == output.Length)
             {
-                if (length == maximumLength)
-                {
-                    Span<byte> probe = stackalloc byte[1];
-                    BinaryLayout.Require(inflater.Read(probe) == 0, "Decoded DEFLATE output exceeds its size limit.");
+                // A full buffer grows only once another byte exists, so output that exactly fills it needs no trimming copy.
+                if (inflater.Read(probe) == 0)
                     break;
-                }
+                BinaryLayout.Require(length < maximumLength, "Decoded DEFLATE output exceeds its size limit.");
                 Array.Resize(ref output, (int)Math.Min(maximumLength, 2L * length));
+                output[length++] = probe[0];
             }
             int count = inflater.Read(output.AsSpan(length));
             if (count == 0)
