@@ -174,6 +174,41 @@ public sealed class TexturesTests
         finally { Directory.Delete(directory, true); }
     }
 
+    [Fact]
+    public void SaveStreamsTheWrittenBytesAndChecksArgumentsFirst()
+    {
+        string directory = Directory.CreateTempSubdirectory("commonfury-dds-").FullName;
+        try
+        {
+            var shape = new TextureShape(TextureDimension.Cube);
+            byte[] payload = Enumerable.Range(0, TextureLayout.DataSize(8, 8, TextureFormat.R8G8B8A8Unorm, 4, shape)).Select(i => (byte)(i * 13)).ToArray();
+            var surface = new TextureSurface(8, 8, TextureFormat.R8G8B8A8Unorm, 4, payload, shape);
+            string path = Path.Combine(directory, "cube.dds");
+            DdsCodec.Save(path, surface);
+            Assert.Equal(DdsCodec.Write(surface), File.ReadAllBytes(path));
+            string nested = Path.Combine(directory, "missing", "a.dds");
+            Assert.Throws<ArgumentNullException>("surface", () => DdsCodec.Save(nested, null!));
+            Assert.False(Directory.Exists(Path.GetDirectoryName(nested)));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void ReadingADx10FileReturnsThePayloadAfterItsHeader()
+    {
+        string directory = Directory.CreateTempSubdirectory("commonfury-dds-").FullName;
+        try
+        {
+            byte[] payload = Enumerable.Range(0, TextureLayout.DataSize(8, 4, TextureFormat.BC1Unorm, 3)).Select(i => (byte)(i * 7)).ToArray();
+            string path = Path.Combine(directory, "a.dds");
+            File.WriteAllBytes(path, DdsCodec.Write(new TextureSurface(8, 4, TextureFormat.BC1Unorm, 3, payload)));
+            TextureSurface read = DdsCodec.Read(path);
+            Assert.Equal(payload, read.Data.ToArray());
+            Assert.Equal(3, read.MipCount);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     // Independent single-surface DX10 header writer used as the oracle.
     private static byte[] ReferenceDdsBytes(TextureSurface surface)
     {
