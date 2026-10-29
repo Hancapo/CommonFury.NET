@@ -87,6 +87,8 @@ public sealed class AnimationSequence
     internal byte[]? OriginalBytes { get; set; }
     internal byte[]? OriginalCanonicalBytes { get; set; }
     internal AnimationSequenceStorage OriginalStorage { get; set; }
+    internal bool OriginalHashDerived { get; set; }
+    internal uint? OriginalPayloadHash { get; set; }
     /// <summary>An owned read-only view of the original sequence block; it remains valid for this object's lifetime.</summary>
     public ReadOnlyMemory<byte> SourceEncoding => OriginalBytes ?? ReadOnlyMemory<byte>.Empty;
 
@@ -256,7 +258,7 @@ public sealed class AnimationSequence
                     Error(AnimationDiagnosticCodes.SequenceSampleCount, "Varying channel sample count differs from the sequence frame count.", path);
                 switch (channel)
                 {
-                    case RawFloatChannel raw when raw.Values.Any(v => !float.IsFinite(v)):
+                    case RawFloatChannel raw when !AllFinite(raw.Values):
                         Error(AnimationDiagnosticCodes.SequenceNonfinite, "Raw samples must be finite for evaluation.", path);
                         break;
                     case StaticFloatChannel scalar when !float.IsFinite(scalar.Value):
@@ -280,7 +282,7 @@ public sealed class AnimationSequence
                         CheckGrid(indirect.Quantum, indirect.Offset, path);
                         CheckCodes(indirect.ValueBits, indirect.EncodedValues, path);
                         CheckCodes(indirect.FrameIndexBits, indirect.FrameIndices, path);
-                        if (indirect.ValueBits > 0 && indirect.FrameIndices.Any(index => index >= indirect.EncodedValues.Length))
+                        if (indirect.ValueBits > 0 && indirect.FrameIndices.AsSpan().ContainsAnyInRange((uint)indirect.EncodedValues.Length, uint.MaxValue))
                             Error(AnimationDiagnosticCodes.SequenceIndirectIndex, "Indirect frame indices must address the explicitly stored value table.", path);
                         break;
                     case LinearFloatChannel linear:
@@ -314,7 +316,14 @@ public sealed class AnimationSequence
         void CheckGrid(float quantum, float offset, string path)
         { if (!float.IsFinite(quantum) || !float.IsFinite(offset)) Error(AnimationDiagnosticCodes.SequenceQuantization, "Quantization parameters must be finite.", path); }
         void CheckCodes(int bits, uint[] values, string path)
-        { if (bits is < 0 or > 32 || bits < 32 && values.Any(v => bits == 0 ? v != 0 : v >= (1u << bits))) Error(AnimationDiagnosticCodes.SequenceValueWidth, "Encoded value exceeds its requested bit width.", path); }
+        { if (bits is < 0 or > 32 || bits < 32 && values.AsSpan().ContainsAnyInRange(1u << bits, uint.MaxValue)) Error(AnimationDiagnosticCodes.SequenceValueWidth, "Encoded value exceeds its requested bit width.", path); }
+        static bool AllFinite(ReadOnlySpan<float> values)
+        {
+            foreach (float value in values)
+                if (!float.IsFinite(value))
+                    return false;
+            return true;
+        }
     }
 }
 

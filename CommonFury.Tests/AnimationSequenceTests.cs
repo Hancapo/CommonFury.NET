@@ -158,6 +158,65 @@ public sealed class AnimationSequenceTests
         Assert.Throws<InvalidOperationException>(() => sequence.Write(RiceFormat));
     }
 
+    private static byte[] WriteLinear(int[] codes, AnimationSequenceFormat format, byte? riceDivisor = null)
+    {
+        var sequence = new AnimationSequence(codes.Length) { SegmentSize = 2 };
+        sequence.Tracks.Add(new SequenceTrack { Channels = { new LinearFloatChannel(codes, 1, segmentSize: 2, riceDivisor: riceDivisor) } });
+        return sequence.Write(format);
+    }
+
+    private static string ReadError(byte[] block, AnimationSequenceFormat format) =>
+        Assert.Throws<InvalidDataException>(() => AnimationSequence.Read(block, 1, format)).Message;
+
+    [Fact]
+    public void UnaryCodesDecodeUpToTheirBoundsAndReportWhichBoundFailed()
+    {
+        // A 30-step Rice quotient ends on the last bit of its window; a 32-bit lane width has no terminator.
+        byte[] longest = WriteLinear([0, 0, 30], RiceFormat, riceDivisor: 0);
+        Assert.Equal([0, 0, 30], Assert.IsType<LinearFloatChannel>(AnimationSequence.Read(longest, 1, RiceFormat).Tracks[0].Channels[0]).EncodedValues);
+        int[] wide = [0, 1 << 30, 0, 0, 0];
+        Assert.Equal(wide, Assert.IsType<LinearFloatChannel>(AnimationSequence.Read(WriteLinear(wide, LaneFormat), 1, LaneFormat).Tracks[0].Channels[0]).EncodedValues);
+
+        // The packed Rice stream starts at 0x30. With a zero initial code, clearing the terminator leaves 31 zeros in the
+        // segment; with a 21-bit initial code, the segment ends before 31 zeros.
+        byte[] unbounded = WriteLinear([0, 0], RiceFormat);
+        unbounded.AsSpan(0x30, 4).Clear();
+        Assert.Equal("Linear Rice quotient exceeds the 30-step unary code.", ReadError(unbounded, RiceFormat));
+        byte[] exhausted = WriteLinear([1 << 20, 1 << 20], RiceFormat);
+        exhausted.AsSpan(0x32, 2).Clear();
+        Assert.Equal("Linear Rice code exceeds its own segment allocation.", ReadError(exhausted, RiceFormat));
+
+        // The lane width code follows a one-bit initial code at stream bit 129, 31 bits before the stream ends.
+        byte[] truncated = WriteLinear([1, 1], LaneFormat);
+        truncated[0x30] &= unchecked((byte)~2);
+        Assert.Equal("Linear channel bit field exceeds its stream.", ReadError(truncated, LaneFormat));
+    }
+
+    [Fact]
+    public void UnchangedBlocksCompareHashesAcrossReadAndWritePolicies()
+    {
+        AnimationSequenceFormat derive = RiceFormat with { HashPolicy = AnimationSequenceHashPolicy.Derive };
+        var sequence = new AnimationSequence(2);
+        sequence.Tracks.Add(new SequenceTrack { Channels = { new QuantizedFloatChannel(3, 1, 0, [1, 2]) } });
+        byte[] padded = sequence.Write(RiceFormat);
+        // Unchanged means matching the canonical re-encoding, whose derived hash excludes the source's frame padding. That
+        // padding cannot be re-encoded, so only a block that compares unchanged can be written.
+        uint canonicalHash = AnimationSequenceCodec.DataHash(padded.AsSpan(0x20));
+        padded[0x20 + 12] |= 0x80;
+        byte[] matching = padded.ToArray(), rewritten = padded.ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(matching, canonicalHash);
+        BinaryPrimitives.WriteUInt32LittleEndian(padded, ~canonicalHash);
+        BinaryPrimitives.WriteUInt32LittleEndian(rewritten, AnimationSequenceCodec.DataHash(padded.AsSpan(0x20)));
+
+        Assert.Equal(rewritten, AnimationSequence.Read(matching, 1, RiceFormat).Write(derive));
+        Assert.Throws<InvalidOperationException>(() => AnimationSequence.Read(padded, 1, RiceFormat).Write(derive));
+        AnimationSequence stale = AnimationSequence.Read(padded, 1, derive);
+        Assert.Equal(rewritten, stale.Write(derive));
+        Assert.Throws<InvalidOperationException>(() => stale.Write(RiceFormat));
+        stale.Hash = canonicalHash;
+        Assert.Equal(padded, stale.Write(RiceFormat));
+    }
+
     [Fact]
     public void CompactStorageFallsBackWhenCompressionDoesNotShrink()
     {

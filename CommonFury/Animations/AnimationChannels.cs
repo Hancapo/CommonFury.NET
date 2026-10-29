@@ -101,6 +101,7 @@ public sealed class RawFloatChannel : AnimationChannel
     internal override int FrameBits => 32;
     /// <summary>Copies <paramref name="values"/>.</summary>
     public RawFloatChannel(ReadOnlySpan<float> values, int componentIndex = 0) : base(componentIndex) { Values = values.ToArray(); }
+    internal RawFloatChannel(int sampleCount, int componentIndex) : base(componentIndex) { Values = new float[sampleCount]; }
     public override Vector4 Sample(int frame) { RequireFrame(frame, Values.Length); return new(Values[frame], 0, 0, 0); }
 }
 
@@ -119,6 +120,8 @@ public sealed class QuantizedFloatChannel : AnimationChannel
     /// <summary>Copies <paramref name="encodedValues"/>; the caller chooses the grid.</summary>
     public QuantizedFloatChannel(int valueBits, float quantum, float offset, ReadOnlySpan<uint> encodedValues, int componentIndex = 0) : base(componentIndex)
     { ValueBits = valueBits; Quantum = quantum; Offset = offset; EncodedValues = encodedValues.ToArray(); }
+    internal QuantizedFloatChannel(int valueBits, float quantum, float offset, int sampleCount, int componentIndex) : base(componentIndex)
+    { ValueBits = valueBits; Quantum = quantum; Offset = offset; EncodedValues = new uint[sampleCount]; }
     public override Vector4 Sample(int frame) { RequireFrame(frame, SampleCount); return new(Decode(EncodedValues[frame], Quantum, Offset), 0, 0, 0); }
     internal override Vector4 Interpolate(int first, int second, float amount) =>
         new(Decode(float.Lerp(EncodedValues[first], EncodedValues[second], amount), Quantum, Offset), 0, 0, 0);
@@ -144,6 +147,9 @@ public sealed class IndirectQuantizedFloatChannel : AnimationChannel
     public IndirectQuantizedFloatChannel(int frameIndexBits, int valueBits, float quantum, float offset,
         ReadOnlySpan<uint> encodedValues, ReadOnlySpan<uint> frameIndices, int componentIndex = 0) : base(componentIndex)
     { FrameIndexBits = frameIndexBits; ValueBits = valueBits; Quantum = quantum; Offset = offset; EncodedValues = encodedValues.ToArray(); FrameIndices = frameIndices.ToArray(); }
+    internal IndirectQuantizedFloatChannel(int frameIndexBits, int valueBits, float quantum, float offset,
+        ReadOnlySpan<uint> encodedValues, int sampleCount, int componentIndex) : base(componentIndex)
+    { FrameIndexBits = frameIndexBits; ValueBits = valueBits; Quantum = quantum; Offset = offset; EncodedValues = encodedValues.ToArray(); FrameIndices = new uint[sampleCount]; }
     private uint Code(int frame)
     {
         RequireFrame(frame, SampleCount);
