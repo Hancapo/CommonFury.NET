@@ -11,112 +11,26 @@ namespace CommonFury.Vertices;
 public static class VertexElementCodec
 {
     /// <summary>Decodes one element from the start of <paramref name="data"/> into four components.</summary>
+    /// <exception cref="InvalidDataException"><paramref name="data"/> is shorter than one element.</exception>
     public static Vector4 Read(ReadOnlySpan<byte> data, VertexElementFormat format, ByteOrder byteOrder = ByteOrder.Little)
     {
-        var reader = new BinarySpanReader(data, byteOrder);
-        return format switch
-        {
-            VertexElementFormat.Float => new(reader.ReadSingle(), 0, 0, 0),
-            VertexElementFormat.Float2 => new(reader.ReadVector2(), 0, 0),
-            VertexElementFormat.Float3 => new(reader.ReadVector3(), 0),
-            VertexElementFormat.Float4 => reader.ReadVector4(),
-            VertexElementFormat.Half2 => new((float)reader.ReadHalf(), (float)reader.ReadHalf(), 0, 0),
-            VertexElementFormat.Half => new((float)reader.ReadHalf(), 0, 0, 0),
-            VertexElementFormat.Half3 => new((float)reader.ReadHalf(), (float)reader.ReadHalf(), (float)reader.ReadHalf(), 0),
-            VertexElementFormat.Half4 => new((float)reader.ReadHalf(), (float)reader.ReadHalf(), (float)reader.ReadHalf(), (float)reader.ReadHalf()),
-            VertexElementFormat.Byte4 => new(reader.ReadByte(), reader.ReadByte(), reader.ReadByte(), reader.ReadByte()),
-            VertexElementFormat.UNorm8x4 => DecodeUNorm8(Endian.U32(data, ByteOrder.Little)),
-            VertexElementFormat.SNorm8x4 => DecodeSNorm8(Endian.U32(data, ByteOrder.Little)),
-            VertexElementFormat.UNorm10x3A2 => DecodeUNorm1010102(reader.ReadUInt32()),
-            VertexElementFormat.BiasedUNorm10x3A2 => DecodeBiased1010102(reader.ReadUInt32()),
-            VertexElementFormat.UNorm16 => new(reader.ReadUInt16() / 65535f, 0, 0, 0),
-            VertexElementFormat.UNorm16x2 => new(reader.ReadUInt16() / 65535f, reader.ReadUInt16() / 65535f, 0, 0),
-            VertexElementFormat.UNorm8x2 => new(reader.ReadByte() / 255f, reader.ReadByte() / 255f, 0, 0),
-            VertexElementFormat.Int16x2 => new(reader.ReadInt16(), reader.ReadInt16(), 0, 0),
-            VertexElementFormat.Int16x4 => new(reader.ReadInt16(), reader.ReadInt16(), reader.ReadInt16(), reader.ReadInt16()),
-            _ => throw new ArgumentOutOfRangeException(nameof(format))
-        };
+        if (byteOrder is not ByteOrder.Big and not ByteOrder.Little)
+            throw new ArgumentOutOfRangeException(nameof(byteOrder));
+        int size = VertexElementFormats.Size(format);
+        BinaryLayout.Slice(data, 0, size);
+        Vector4 result = default;
+        Read(data, size, format, new Span<Vector4>(ref result), byteOrder);
+        return result;
     }
 
     /// <summary>Encodes one element into the start of <paramref name="data"/> (little-endian), rejecting values the format cannot represent.</summary>
+    /// <exception cref="ArgumentException"><paramref name="data"/> is shorter than one element; nothing is written.</exception>
     public static void Write(Span<byte> data, VertexElementFormat format, Vector4 value)
     {
-        var writer = new BinarySpanWriter(data);
-        switch (format)
-        {
-            case VertexElementFormat.Float:
-                writer.WriteSingle(value.X);
-                break;
-            case VertexElementFormat.Float2:
-                writer.WriteVector2(new(value.X, value.Y));
-                break;
-            case VertexElementFormat.Float3:
-                writer.WriteVector3(new(value.X, value.Y, value.Z));
-                break;
-            case VertexElementFormat.Float4:
-                writer.WriteVector4(value);
-                break;
-            case VertexElementFormat.Half2:
-                writer.WriteHalf((Half)value.X);
-                writer.WriteHalf((Half)value.Y);
-                break;
-            case VertexElementFormat.Half:
-                writer.WriteHalf((Half)value.X);
-                break;
-            case VertexElementFormat.Half3:
-                writer.WriteHalf((Half)value.X);
-                writer.WriteHalf((Half)value.Y);
-                writer.WriteHalf((Half)value.Z);
-                break;
-            case VertexElementFormat.Half4:
-                writer.WriteHalf((Half)value.X);
-                writer.WriteHalf((Half)value.Y);
-                writer.WriteHalf((Half)value.Z);
-                writer.WriteHalf((Half)value.W);
-                break;
-            case VertexElementFormat.Byte4:
-                RequireByte4(value);
-                writer.WriteByte((byte)value.X);
-                writer.WriteByte((byte)value.Y);
-                writer.WriteByte((byte)value.Z);
-                writer.WriteByte((byte)value.W);
-                break;
-            case VertexElementFormat.UNorm8x4:
-                writer.WriteUInt32(PackedVectors.EncodeUNorm8(value));
-                break;
-            case VertexElementFormat.SNorm8x4:
-                writer.WriteUInt32(Signed(value.X) | (Signed(value.Y) << 8) | (Signed(value.Z) << 16) | (Signed(value.W) << 24));
-                break;
-            case VertexElementFormat.UNorm10x3A2:
-                writer.WriteUInt32(PackedVectors.EncodeUNorm1010102(value));
-                break;
-            case VertexElementFormat.BiasedUNorm10x3A2:
-                writer.WriteUInt32(Biased(value.X, 1023) | (Biased(value.Y, 1023) << 10) | (Biased(value.Z, 1023) << 20) | (Biased(value.W, 3) << 30));
-                break;
-            case VertexElementFormat.UNorm16:
-                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.X, 65535));
-                break;
-            case VertexElementFormat.UNorm16x2:
-                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.X, 65535));
-                writer.WriteUInt16((ushort)PackedVectors.EncodeUNorm(value.Y, 65535));
-                break;
-            case VertexElementFormat.UNorm8x2:
-                writer.WriteByte((byte)PackedVectors.EncodeUNorm(value.X, 255));
-                writer.WriteByte((byte)PackedVectors.EncodeUNorm(value.Y, 255));
-                break;
-            case VertexElementFormat.Int16x2:
-                writer.WriteInt16(Integer16(value.X));
-                writer.WriteInt16(Integer16(value.Y));
-                break;
-            case VertexElementFormat.Int16x4:
-                writer.WriteInt16(Integer16(value.X));
-                writer.WriteInt16(Integer16(value.Y));
-                writer.WriteInt16(Integer16(value.Z));
-                writer.WriteInt16(Integer16(value.W));
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(format));
-        }
+        int size = VertexElementFormats.Size(format);
+        if (data.Length < size)
+            throw new ArgumentException("Destination buffer is too small.");
+        Write(data, size, format, new ReadOnlySpan<Vector4>(in value));
     }
 
     /// <summary>Decodes <paramref name="destination"/>.Length elements spaced <paramref name="stride"/> bytes apart from the start of
