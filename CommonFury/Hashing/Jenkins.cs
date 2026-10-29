@@ -76,12 +76,16 @@ public static class Jenkins
     }
 
     /// <summary>PSO CHKS checksum: signed bytes, seed 0x3FAC7125, no normalization.</summary>
-    public static uint PsoChecksum(ReadOnlySpan<byte> data)
+    public static uint PsoChecksum(ReadOnlySpan<byte> data) => Finalize(ContinuePsoChecksum(PsoChecksumSeed, data));
+
+    internal const uint PsoChecksumSeed = 0x3FAC7125;
+
+    // Mixes data into an unfinalized PSO checksum state, so input in several pieces hashes like one span.
+    internal static uint ContinuePsoChecksum(uint state, ReadOnlySpan<byte> data)
     {
-        uint state = 0x3FAC7125;
         foreach (byte value in data)
             state = MixByte(state, unchecked((uint)(sbyte)value));
-        return Finalize(state);
+        return state;
     }
 
     /// <summary>Bob Jenkins' lookup3 <c>hashword</c>. Unrelated to <see cref="OneAtATimeWords"/>.</summary>

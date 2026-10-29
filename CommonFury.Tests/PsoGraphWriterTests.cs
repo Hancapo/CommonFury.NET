@@ -191,6 +191,26 @@ public sealed class PsoGraphWriterTests
         Assert.Contains(isolated.Report.Diagnostics, diagnostic => diagnostic.Code == PsoDiagnosticCodes.FieldDecode);
     }
 
+    [Fact]
+    public void FieldsMatchTheirSchemaEntriesInAnyOrder()
+    {
+        PsoEntry first = new(0xA1234571, PsoDataType.UInt32, 0, 0, 0), second = new(0xA1234572, PsoDataType.UInt32, 0, 4, 0);
+        var schema = new PsoSchema([new PsoStruct(RootHash, 8, [first, second])]);
+        PsoField a = new(first, new PsoInteger(1)), b = new(second, new PsoInteger(2));
+        byte[] ordered = PsoFile.FromGraph(schema, PsoNode.Create(RootHash, [a, b])).Write();
+        Assert.Equal(ordered, PsoFile.FromGraph(schema, PsoNode.Create(RootHash, [b, a])).Write());
+
+        Assert.Equal("PSO fields cannot be null.", Error(schema, [a, null!]));
+        Assert.Equal("Duplicate PSO field.", Error(schema, [a, a]));
+        Assert.Equal("PSO field 0xA1234572 is missing or has mismatched metadata.", Error(schema, [a]));
+        Assert.Equal("PSO node contains fields absent from its schema.", Error(schema, [a, b, new(first with { DataOffset = 2 }, new PsoInteger(3))]));
+        // Fields in schema order still collide when the schema repeats an entry.
+        Assert.Equal("Duplicate PSO field.", Error(new PsoSchema([new PsoStruct(RootHash, 8, [first, first])]), [a, a]));
+
+        static string Error(PsoSchema schema, PsoField[] fields) =>
+            Assert.Throws<InvalidDataException>(() => PsoFile.FromGraph(schema, PsoNode.Create(RootHash, fields))).Message;
+    }
+
     private static PsoFile File(PsoEntry[] entries, byte[] data, params (uint Type, byte[] Data)[] blocks)
     {
         var schema = new PsoSchema([new PsoStruct(RootHash, data.Length, entries)]);

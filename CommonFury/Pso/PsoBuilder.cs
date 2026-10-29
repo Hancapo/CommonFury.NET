@@ -17,6 +17,8 @@ public sealed class PsoBlockBuilder(uint nameHash)
         buffer.Write(data);
         return offset;
     }
+    // Makes room for at least length more bytes, so appending them does not regrow the buffer.
+    internal void Reserve(int length) => buffer.GetSpan(length);
 }
 
 /// <summary>Pointer fixup from a field in one block to an offset in another.</summary>
@@ -94,19 +96,33 @@ public sealed class PsoBuilder(PsoSchema schema)
                 writer.WriteByte(BlockPadding);
             writer.WriteBytes(Blocks[i].Data);
         }
-        var patchedRanges = new HashSet<(PsoBlockBuilder, int)>();
-        foreach (PsoPointerPatch patch in PointerPatches)
+        // Overlaps are found by sorting the patch starts. A patch overlapping an earlier one is reported before any later
+        // patch's error, so each error path first checks the patches before it.
+        var starts = new long[PointerPatches.Count];
+        for (int p = 0; p < starts.Length; p++)
         {
+            PsoPointerPatch patch = PointerPatches[p];
             if (patch is null || !ids.TryGetValue(patch.Source, out int sourceId) || !ids.TryGetValue(patch.Target, out int targetId))
+            {
+                RejectOverlaps(starts.AsSpan(0, p));
                 throw new InvalidOperationException("Pointer patches must reference registered blocks.");
+            }
             if (patch.Offset < 0 || patch.Offset > patch.Source.Data.Length - 4 || patch.TargetOffset < 0 || patch.TargetOffset > patch.Target.Data.Length)
+            {
+                RejectOverlaps(starts.AsSpan(0, p));
                 throw new InvalidOperationException("Pointer patch is outside its block.");
-            for (int i = 0; i < 4; i++)
-                if (!patchedRanges.Add((patch.Source, patch.Offset + i)))
-                    throw new InvalidOperationException("Overlapping pointer patches.");
-            uint word = new PsoPointer(targetId, patch.TargetOffset).Encode(PointerLayout);
+            }
+            starts[p] = (long)sourceId << 32 | (uint)patch.Offset;
+            uint word;
+            try { word = new PsoPointer(targetId, patch.TargetOffset).Encode(PointerLayout); }
+            catch (ArgumentOutOfRangeException)
+            {
+                RejectOverlaps(starts.AsSpan(0, p + 1));
+                throw;
+            }
             Endian.Put32(bytes.AsSpan(offsets[sourceId - 1] + patch.Offset), word, ByteOrder.Big);
         }
+        RejectOverlaps(starts);
         writer.WriteUInt32(PsoSectionId.Pmap);
         writer.WriteUInt32((uint)pmapSize);
         writer.WriteInt32(rootId);
@@ -140,6 +156,16 @@ public sealed class PsoBuilder(PsoSchema schema)
             Endian.Put32(bytes.AsSpan(size - 12), (uint)size, ByteOrder.Big);
             Endian.Put32(bytes.AsSpan(size - 8), checksum, ByteOrder.Big);
         }
-        return PsoFile.Read(bytes, new() { PointerLayout = PointerLayout });
+        return PsoFile.ReadOwned(bytes, new() { PointerLayout = PointerLayout });
+    }
+
+    // Each patch covers four bytes. A start is the block ID in the high word over an offset below 2^31, so starts in
+    // different blocks are never closer than four.
+    private static void RejectOverlaps(Span<long> starts)
+    {
+        starts.Sort();
+        for (int i = 1; i < starts.Length; i++)
+            if (starts[i] - starts[i - 1] < 4)
+                throw new InvalidOperationException("Overlapping pointer patches.");
     }
 }

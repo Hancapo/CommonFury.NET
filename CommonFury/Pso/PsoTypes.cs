@@ -139,17 +139,30 @@ public readonly record struct PsoEnumEntry(uint NameHash, long Value, uint Reser
 /// <summary>Owns a complete encoded section, including its eight-byte header.</summary>
 public sealed class PsoSection
 {
-    private readonly byte[] data;
+    private readonly ArraySegment<byte> data;
     /// <summary>Four-character identifier, read big-endian.</summary>
     public uint Identifier { get; }
     public ReadOnlySpan<byte> Data => this.data;
     /// <summary>Copies the section; its header length must match <paramref name="data"/>.</summary>
     public PsoSection(ReadOnlySpan<byte> data)
     {
-        var reader = new BinarySpanReader(data, ByteOrder.Big);
-        Identifier = reader.ReadUInt32();
-        BinaryLayout.Require(reader.ReadUInt32() == data.Length && data.Length >= 8, "PSO section size does not match its header.");
+        Identifier = ReadIdentifier(data);
         this.data = data.ToArray();
+    }
+
+    // Takes ownership of a range that nothing else retains or changes.
+    internal PsoSection(ArraySegment<byte> data)
+    {
+        Identifier = ReadIdentifier(data);
+        this.data = data;
+    }
+
+    private static uint ReadIdentifier(ReadOnlySpan<byte> data)
+    {
+        var reader = new BinarySpanReader(data, ByteOrder.Big);
+        uint identifier = reader.ReadUInt32();
+        BinaryLayout.Require(reader.ReadUInt32() == data.Length && data.Length >= 8, "PSO section size does not match its header.");
+        return identifier;
     }
 }
 
