@@ -56,6 +56,21 @@ public sealed class RawDeflateTests
         Assert.Equal(Decoded, RawDeflate.DecompressExact([.. nonFinal, 3, 0], 32));
     }
 
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void DecompressEnforcesTheLimitAtEverySize(bool zeroHistory)
+    {
+        byte[] data = new byte[200_001];
+        new Random(3).NextBytes(data.AsSpan(0, 100_000));
+        byte[] compressed = RawDeflate.Compress(data, CompressionLevel.Fastest);
+        foreach (int limit in new[] { data.Length, data.Length + 1, 1 << 20, int.MaxValue })
+            Assert.Equal(data, RawDeflate.Decompress(compressed, limit, zeroHistory));
+        foreach (int limit in new[] { 0, 1, 64 * 1024, 64 * 1024 + 1, 131_072, data.Length - 1 })
+            Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(compressed, limit, zeroHistory));
+        Assert.Empty(RawDeflate.Decompress([3, 0], 0, zeroHistory));
+        Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(compressed[..^1], data.Length, zeroHistory));
+    }
+
     [Fact]
     public void ZeroHistoryResolvesReferencesBeforeTheFirstByte()
     {

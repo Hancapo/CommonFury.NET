@@ -8,11 +8,12 @@ namespace CommonFury.Compression;
 /// results in memory so reading back just-written data skips decompression; recalled bytes are compared in full first.</remarks>
 public static class CompressionCache
 {
-    private const string Version = "deflate-optimal-v1";
     private const int RecentCapacity = 256;
     private static readonly ConcurrentDictionary<string, (byte[] Compressed, byte[] Data)> recent = new();
     private static readonly ConcurrentQueue<string> order = new();
     private static long hits, misses;
+
+    private static ReadOnlySpan<byte> Version => "deflate-optimal-v1"u8;
 
     /// <summary>Null disables persistence.</summary>
     public static string? Directory { get; set; }
@@ -78,11 +79,13 @@ public static class CompressionCache
         while (recent.Count > RecentCapacity && order.TryDequeue(out var old)) recent.TryRemove(old, out _);
     }
 
-    private static string Key(string version, ReadOnlySpan<byte> data)
+    private static string Key(ReadOnlySpan<byte> version, ReadOnlySpan<byte> data)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(System.Text.Encoding.ASCII.GetBytes(version));
+        hash.AppendData(version);
         hash.AppendData(data);
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        Span<byte> digest = stackalloc byte[SHA256.HashSizeInBytes];
+        hash.GetHashAndReset(digest);
+        return Convert.ToHexStringLower(digest);
     }
 }
