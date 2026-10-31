@@ -14,14 +14,14 @@ codecs), the caller passes the choice in.
 | Namespace | Types | Callers supply |
 |---|---|---|
 | `CommonFury` | `Diagnostic`, `ValidationReport`, `ValidationException`, severity/scope/purpose enums | |
-| `CommonFury.Hashing` | `Jenkins`, `Hash32`, `PartialHash32`, `HashText`, `HashResolver`, `ElfHash`, `Checksums` | |
+| `CommonFury.Hashing` | `Jenkins`, `Hash32`, `PartialHash32`, `HashText`, `HashResolver`, `ElfHash`, `Checksums`, `XxHash64` | |
 | `CommonFury.Binary` | `BinarySpanReader`/`Writer`, `BinaryStreamWriter`, `BinaryArrays`, `BinaryBitReader`/`Writer`, `MsbBitReader`, `BitField32`, `BinaryLayout`, `Endian`, `ByteOrder` | byte order |
 | `CommonFury.IO` | `AtomicFile`, `AssetPaths`, `VirtualPaths`, `AssetNames`, `FileTree` | |
 | `CommonFury.Numerics` | `VectorMath`, `QuaternionMath`, `TransformMath`, `MatrixMath`, `SpanMath`, `Aabb2`, `Aabb3`, `Sphere3`, `Matrix3x4`, `Vector3D`, `Quantization`, `PackedVectors`, `BoundsQuantization`, `SkinningMath`, `SkinningBatch`, `JointFrameMath`, `CurveMath`, `IntegerGrid` | grid steps, bounds and bit widths; influence counts |
 | `CommonFury.Geometry` | `MeshMath`, `MeshPartitioning`, `PolygonMath`, `PlaneMath`, `HeightFieldMath`, `RasterMath`, `SpatialGrid2`, `ShapeGeometry`, `MassProperties` | vertex limits for splitting; up and fallback axes for plane fits |
-| `CommonFury.Compression` | `RawDeflate`, `CompressionCache` | output size limit; zero-history window when the format needs it |
+| `CommonFury.Compression` | `RawDeflate`, `CompressionCache`, `Zstandard` (span and stream decoding), `ZstandardDictionary`, `ZstandardFrameHeader` | output size limit; zero-history window when the format needs it; Zstandard dictionary |
 | `CommonFury.Audio` | `PcmAudio` (WAV read/write, mono/stereo conversion, resampling), `IAudioDecoder` | a decoder for compressed formats |
-| `CommonFury.Textures` | `TextureFormat(s)`, `TextureShape`, `TextureLayout`, `TextureSurface`, `DdsCodec`, `PixelCodec`, `Bc1`; `Numerics.PixelMath` | |
+| `CommonFury.Textures` | `TextureFormat(s)`, `TextureShape`, `TextureLayout`, `TextureSurface`, `TextureElement`, `DdsCodec`, `PixelCodec`, `Bc1`, `Astc`, `AstcFormat`, `BlockLinear`, `BlockLinearSurface`, `BlockLinearLayout`; `Numerics.PixelMath` | ASTC profile; GOB layout and block height for block-linear data |
 | `CommonFury.Pso` | `PsoFile`, `PsoSchema`, `PsoBuilder`, `PsoGraphWriter`, typed `PsoValue`s, `PsoPointerLayout`, `IPsoNameResolver` | name resolver; pointer layout when not detected |
 | `CommonFury.Rbf` | `RbfDocument`, nodes, `RbfLimits`, `RbfDescriptor`, `RbfRecordType`, `RbfDiagnosticCodes` | |
 | `CommonFury.Xml` | `XmlDocumentCodec`, `XmlElementReader`, `XmlElements`, `XmlPlatformSelection` | platform names |
