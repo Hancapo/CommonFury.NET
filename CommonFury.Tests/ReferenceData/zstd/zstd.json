@@ -1,0 +1,106 @@
+{
+ "fixtures": [
+  {
+   "name": "text-checksum",
+   "length": 20000,
+   "sha256": "2a843abc2eaa971c7c41bc0a1bbcb5d9cf42a3d4834792843005ce1c3e441c4f"
+  },
+  {
+   "name": "text-no-content-size",
+   "length": 20000,
+   "sha256": "2a843abc2eaa971c7c41bc0a1bbcb5d9cf42a3d4834792843005ce1c3e441c4f"
+  },
+  {
+   "name": "text-fast-no-checksum",
+   "length": 20000,
+   "sha256": "2a843abc2eaa971c7c41bc0a1bbcb5d9cf42a3d4834792843005ce1c3e441c4f"
+  },
+  {
+   "name": "records-level19",
+   "length": 160000,
+   "sha256": "e3117f3bff12452a78f4b369670919b7947bb868ef22bc9c77aed5fb5e92987f"
+  },
+  {
+   "name": "mixed-rle-blocks",
+   "length": 530000,
+   "sha256": "0eef10918beedc1076cb6d4bb53719547c44304fedbdac6911dbe3f15541fba6"
+  },
+  {
+   "name": "noise-raw-blocks",
+   "length": 40000,
+   "sha256": "efd7165b0010f72233c9c134f5f599e973192f8494005f5ac576d5e8760c9b37"
+  },
+  {
+   "name": "skewed-literals",
+   "length": 3000,
+   "sha256": "cf2dfb0cf258a6b80d77346667fcbce8339fa92bbeda94e04a0b73131f1beb75"
+  },
+  {
+   "name": "literals-only",
+   "length": 2000,
+   "sha256": "33cca5f9b734da50257993e0d55f000ba50a77d1564f6a7c29e47de47cf971bc"
+  },
+  {
+   "name": "uniform-sequences",
+   "length": 30004,
+   "sha256": "b80017c5d5ef134f38e8a643b3aac34753e7441118ab6ff63808e0c215fc0917"
+  },
+  {
+   "name": "window-1k",
+   "length": 65536,
+   "sha256": "fb4a64fb3c9d37f656c3b39eea2b83a96d87aeedc896a9f872cac23591999494"
+  },
+  {
+   "name": "long-distance",
+   "length": 350000,
+   "sha256": "879454c9a0f73925553a4d1ef0d69273f51db59417b1e656a456ea4814b871a8"
+  },
+  {
+   "name": "tiny",
+   "length": 60,
+   "sha256": "1aee7937ab42af5c79bad276ffe269507819386b44692751dc2fb50134ea0190"
+  },
+  {
+   "name": "empty",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "multi-frame",
+   "length": 13000,
+   "sha256": "e9aa796f87dd70c5ccd565ac47d2dc522c796ef593c92bede12f2a0fb6786a57"
+  },
+  {
+   "name": "dictionary-frames",
+   "length": 768,
+   "sha256": "afbc1ecccae98a5bce3c2934f8f2f5d5c72423bc15cb649d59d446570c3128c0",
+   "dictionary": "trained.dict"
+  },
+  {
+   "name": "dictionary-no-id",
+   "length": 768,
+   "sha256": "afbc1ecccae98a5bce3c2934f8f2f5d5c72423bc15cb649d59d446570c3128c0",
+   "dictionary": "trained.dict"
+  },
+  {
+   "name": "raw-dictionary",
+   "length": 3400,
+   "sha256": "a64d5ee4d2ac363002b88bf9dbf08630e1a7c4cb7d41729c27fbeaa422a618b5",
+   "dictionary": "raw-content.dict",
+   "rawDictionary": true
+  },
+  {
+   "name": "raw-dictionary-rle-literals",
+   "length": 1639,
+   "sha256": "d9a960c589ea07f29c6d08792e3ddd177c13cb44ffebf1174d4459aa8c9eb408",
+   "dictionary": "raw-content.dict",
+   "rawDictionary": true
+  },
+  {
+   "name": "hand-rle-modes",
+   "length": 22,
+   "sha256": "7ad140aeb39b9b50639f556943c8715fe0202202ab6dfcd033856ec87240cd85"
+  }
+ ],
+ "dictionaryId": 306076222
+}
