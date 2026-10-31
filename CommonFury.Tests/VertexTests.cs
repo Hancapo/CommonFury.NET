@@ -8,7 +8,7 @@ namespace CommonFury.Tests;
 
 public sealed class VertexTests
 {
-    private static readonly VertexElementFormat[] DxgiFormats = Enum.GetValues<VertexElementFormat>().Where(f => f != VertexElementFormat.Half3).ToArray();
+    private static readonly VertexElementFormat[] DxgiFormats = Enum.GetValues<VertexElementFormat>().Where(f => f is not VertexElementFormat.Half3 and not VertexElementFormat.SNorm10x3A2).ToArray();
 
     [Fact]
     public void SemanticsUseTheSharedDeclarationSlots()
@@ -32,6 +32,7 @@ public sealed class VertexTests
         Assert.False(VertexElementFormats.TryFromDxgi(253, Rgb10A2Range.ZeroToOne, out _));
         Assert.Throws<InvalidDataException>(() => VertexElementFormats.FromDxgi(253, Rgb10A2Range.ZeroToOne));
         Assert.Throws<InvalidOperationException>(() => VertexElementFormats.ToDxgi(VertexElementFormat.Half3));
+        Assert.Throws<InvalidOperationException>(() => VertexElementFormats.ToDxgi(VertexElementFormat.SNorm10x3A2));
         // DXGI identifiers and element sizes.
         foreach (var (dxgi, size) in new (byte, int)[] { (2, 16), (6, 12), (10, 8), (16, 8), (24, 4), (28, 4), (30, 4), (34, 4) })
             Assert.Equal(size, VertexElementFormats.Size(VertexElementFormats.FromDxgi(dxgi, Rgb10A2Range.MinusOneToOne)));
@@ -46,9 +47,10 @@ public sealed class VertexTests
         {
             Vector4 value = format switch
             {
-                VertexElementFormat.Byte4 => new(0, 7, 128, 255),
+                VertexElementFormat.Byte4 or VertexElementFormat.UInt8 or VertexElementFormat.UInt8x2 => new(0, 7, 128, 255),
                 VertexElementFormat.Int16x2 or VertexElementFormat.Int16x4 => new(-32768, 5, -7, 32767),
-                VertexElementFormat.SNorm8x4 or VertexElementFormat.BiasedUNorm10x3A2 => signed,
+                VertexElementFormat.SNorm8x4 or VertexElementFormat.BiasedUNorm10x3A2 or VertexElementFormat.SNorm8 or VertexElementFormat.SNorm8x2
+                    or VertexElementFormat.SNorm16x2 or VertexElementFormat.SNorm10x3A2 => signed,
                 _ => normalized
             };
             var bytes = new byte[VertexElementFormats.Size(format)];
@@ -56,8 +58,10 @@ public sealed class VertexTests
             Vector4 decoded = VertexElementCodec.Read(bytes, format);
             int lanes = format switch
             {
-                VertexElementFormat.Float or VertexElementFormat.Half or VertexElementFormat.UNorm16 => 1,
-                VertexElementFormat.Float2 or VertexElementFormat.Half2 or VertexElementFormat.UNorm16x2 or VertexElementFormat.UNorm8x2 or VertexElementFormat.Int16x2 => 2,
+                VertexElementFormat.Float or VertexElementFormat.Half or VertexElementFormat.UNorm16 or VertexElementFormat.UNorm8 or VertexElementFormat.SNorm8
+                    or VertexElementFormat.UInt8 => 1,
+                VertexElementFormat.Float2 or VertexElementFormat.Half2 or VertexElementFormat.UNorm16x2 or VertexElementFormat.UNorm8x2 or VertexElementFormat.Int16x2
+                    or VertexElementFormat.SNorm8x2 or VertexElementFormat.SNorm16x2 or VertexElementFormat.UInt8x2 => 2,
                 VertexElementFormat.Float3 or VertexElementFormat.Half3 => 3,
                 _ => 4
             };
@@ -67,6 +71,46 @@ public sealed class VertexTests
         Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[4], VertexElementFormat.UNorm8x4, new(2)));
         Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[4], VertexElementFormat.BiasedUNorm10x3A2, new(float.NaN)));
         Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[4], VertexElementFormat.Byte4, new(0.5f)));
+    }
+
+    [Fact]
+    public void NarrowAndSignedFormatsUseTheirBytes()
+    {
+        (VertexElementFormat Format, Vector4 Value, byte[] Bytes)[] cases =
+        [
+            (VertexElementFormat.UNorm8, new(0.5f, 0, 0, 0), [0x80]),
+            (VertexElementFormat.SNorm8, new(-1, 0, 0, 0), [0x81]),
+            (VertexElementFormat.SNorm8x2, new(1, -0.5f, 0, 0), [0x7F, 0xC0]),
+            (VertexElementFormat.SNorm16x2, new(1, -1, 0, 0), [0xFF, 0x7F, 0x01, 0x80]),
+            (VertexElementFormat.UNorm16x4, new(0, 1, 0.5f, 1), [0, 0, 0xFF, 0xFF, 0x00, 0x80, 0xFF, 0xFF]),
+            // x = 511, y = -511 (0x201), z = 0, w = -1 (0b11).
+            (VertexElementFormat.SNorm10x3A2, new(1, -1, 0, -1), [0xFF, 0x05, 0x08, 0xC0]),
+            (VertexElementFormat.UInt8, new(200, 0, 0, 0), [200]),
+            (VertexElementFormat.UInt8x2, new(3, 250, 0, 0), [3, 250]),
+        ];
+        foreach (var (format, value, bytes) in cases)
+        {
+            var written = new byte[VertexElementFormats.Size(format)];
+            VertexElementCodec.Write(written, format, value);
+            Assert.Equal(bytes, written);
+            Assert.Equal(value, VertexElementCodec.Read(bytes, format), new VectorTolerance(5e-3f));
+        }
+        // The most negative codes clamp to -1; signed 10-bit fields are sign-extended, not biased.
+        Assert.Equal(new Vector4(-1, 0, 0, 0), VertexElementCodec.Read([0x80], VertexElementFormat.SNorm8));
+        Assert.Equal(new Vector4(-1, -1, 0, 0), VertexElementCodec.Read([0x00, 0x80, 0x00, 0x80], VertexElementFormat.SNorm16x2));
+        Assert.Equal(new Vector4(-1, 1 / 511f, -2 / 511f, -1), VertexElementCodec.Read([0x00, 0x06, 0xE0, 0xBF], VertexElementFormat.SNorm10x3A2));
+        Assert.Equal(new Vector4(-1, 1 / 511f, -2 / 511f, -1),
+            VertexElementCodec.Read([0xBF, 0xE0, 0x06, 0x00], VertexElementFormat.SNorm10x3A2, ByteOrder.Big));
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[2], VertexElementFormat.UInt8x2, new(1.5f, 0, 0, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[1], VertexElementFormat.UInt8, new(256, 0, 0, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[4], VertexElementFormat.SNorm10x3A2, new(0, 0, 1.01f, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => VertexElementCodec.Write(new byte[1], VertexElementFormat.SNorm8, new(float.NaN)));
+    }
+
+    private sealed class VectorTolerance(float tolerance) : IEqualityComparer<Vector4>
+    {
+        public bool Equals(Vector4 x, Vector4 y) => Vector4.Abs(x - y) is var d && d.X <= tolerance && d.Y <= tolerance && d.Z <= tolerance && d.W <= tolerance;
+        public int GetHashCode(Vector4 obj) => 0;
     }
 
     [Fact]
