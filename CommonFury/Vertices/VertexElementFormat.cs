@@ -27,7 +27,19 @@ public enum VertexElementFormat
     /// <summary>Decoded as exact integers, not normalized (DXGI R16G16_SINT).</summary>
     Int16x2,
     /// <summary>Decoded as exact integers, not normalized (DXGI R16G16B16A16_SINT).</summary>
-    Int16x4
+    Int16x4,
+    UNorm8,
+    SNorm8,
+    SNorm8x2,
+    SNorm16x2,
+    UNorm16x4,
+    /// <summary>Signed 10/10/10/2 fields, sign-extended and decoded to [-1,1]: x, y and z as <c>value / 511</c>, w as the 2-bit value
+    /// itself, with the most negative codes clamped to -1. No DXGI encoding.</summary>
+    SNorm10x3A2,
+    /// <summary>Decoded as an exact integer 0–255, not normalized (DXGI R8_UINT).</summary>
+    UInt8,
+    /// <summary>Decoded as exact integers 0–255, not normalized (DXGI R8G8_UINT).</summary>
+    UInt8x2
 }
 
 /// <summary>Selects how DXGI R10G10B10A2_UNORM (format 24) vertex data is interpreted. Formats differ, so there is no default.</summary>
@@ -48,11 +60,14 @@ public static class VertexElementFormats
     /// <summary>Encoded bytes per element.</summary>
     public static int Size(VertexElementFormat format) => format switch
     {
-        VertexElementFormat.Half or VertexElementFormat.UNorm16 or VertexElementFormat.UNorm8x2 => 2,
+        VertexElementFormat.UNorm8 or VertexElementFormat.SNorm8 or VertexElementFormat.UInt8 => 1,
+        VertexElementFormat.Half or VertexElementFormat.UNorm16 or VertexElementFormat.UNorm8x2 or VertexElementFormat.SNorm8x2
+            or VertexElementFormat.UInt8x2 => 2,
         VertexElementFormat.Float or VertexElementFormat.Half2 or VertexElementFormat.Byte4 or VertexElementFormat.UNorm8x4 or VertexElementFormat.SNorm8x4
-            or VertexElementFormat.UNorm10x3A2 or VertexElementFormat.BiasedUNorm10x3A2 or VertexElementFormat.UNorm16x2 or VertexElementFormat.Int16x2 => 4,
+            or VertexElementFormat.UNorm10x3A2 or VertexElementFormat.BiasedUNorm10x3A2 or VertexElementFormat.UNorm16x2 or VertexElementFormat.Int16x2
+            or VertexElementFormat.SNorm16x2 or VertexElementFormat.SNorm10x3A2 => 4,
         VertexElementFormat.Half3 => 6,
-        VertexElementFormat.Float2 or VertexElementFormat.Half4 or VertexElementFormat.Int16x4 => 8,
+        VertexElementFormat.Float2 or VertexElementFormat.Half4 or VertexElementFormat.Int16x4 or VertexElementFormat.UNorm16x4 => 8,
         VertexElementFormat.Float3 => 12,
         VertexElementFormat.Float4 => 16,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
@@ -64,6 +79,7 @@ public static class VertexElementFormats
         VertexElementFormat.Float4 => 2,
         VertexElementFormat.Float3 => 6,
         VertexElementFormat.Half4 => 10,
+        VertexElementFormat.UNorm16x4 => 11,
         VertexElementFormat.Int16x4 => 14,
         VertexElementFormat.Float2 => 16,
         VertexElementFormat.UNorm10x3A2 or VertexElementFormat.BiasedUNorm10x3A2 => Rgb10A2Dxgi,
@@ -72,11 +88,17 @@ public static class VertexElementFormats
         VertexElementFormat.SNorm8x4 => 31,
         VertexElementFormat.Half2 => 34,
         VertexElementFormat.UNorm16x2 => 35,
+        VertexElementFormat.SNorm16x2 => 37,
         VertexElementFormat.Int16x2 => 38,
         VertexElementFormat.Float => 41,
         VertexElementFormat.UNorm8x2 => 49,
+        VertexElementFormat.UInt8x2 => 50,
+        VertexElementFormat.SNorm8x2 => 51,
         VertexElementFormat.Half => 54,
         VertexElementFormat.UNorm16 => 56,
+        VertexElementFormat.UNorm8 => 61,
+        VertexElementFormat.UInt8 => 62,
+        VertexElementFormat.SNorm8 => 63,
         _ => throw new InvalidOperationException($"Vertex format {format} has no supported gen9 encoding.")
     };
 
@@ -99,6 +121,7 @@ public static class VertexElementFormats
             2 => VertexElementFormat.Float4,
             6 => VertexElementFormat.Float3,
             10 => VertexElementFormat.Half4,
+            11 => VertexElementFormat.UNorm16x4,
             14 => VertexElementFormat.Int16x4,
             16 => VertexElementFormat.Float2,
             28 => VertexElementFormat.UNorm8x4,
@@ -106,11 +129,17 @@ public static class VertexElementFormats
             31 => VertexElementFormat.SNorm8x4,
             34 => VertexElementFormat.Half2,
             35 => VertexElementFormat.UNorm16x2,
+            37 => VertexElementFormat.SNorm16x2,
             38 => VertexElementFormat.Int16x2,
             41 => VertexElementFormat.Float,
             49 => VertexElementFormat.UNorm8x2,
+            50 => VertexElementFormat.UInt8x2,
+            51 => VertexElementFormat.SNorm8x2,
             54 => VertexElementFormat.Half,
             56 => VertexElementFormat.UNorm16,
+            61 => VertexElementFormat.UNorm8,
+            62 => VertexElementFormat.UInt8,
+            63 => VertexElementFormat.SNorm8,
             _ => null
         };
         format = known.GetValueOrDefault();

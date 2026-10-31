@@ -147,6 +147,32 @@ public static class VertexElementCodec
                 BinaryPrimitives.WriteInt16LittleEndian(data[4..], Integer16(value.Z));
                 BinaryPrimitives.WriteInt16LittleEndian(data[6..], Integer16(value.W));
                 break;
+            case VertexElementFormat.UNorm8:
+                data[0] = (byte)PackedVectors.EncodeUNorm(value.X, 255);
+                break;
+            case VertexElementFormat.SNorm8:
+                data[0] = (byte)Signed(value.X);
+                break;
+            case VertexElementFormat.SNorm8x2:
+                BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)(Signed(value.X) | Signed(value.Y) << 8));
+                break;
+            case VertexElementFormat.SNorm16x2:
+                BinaryPrimitives.WriteUInt32LittleEndian(data, (uint)SignedNorm(value.X, 32767) & 0xFFFF | (uint)SignedNorm(value.Y, 32767) << 16);
+                break;
+            case VertexElementFormat.UNorm16x4:
+                BinaryPrimitives.WriteUInt64LittleEndian(data, PackedVectors.EncodeUNorm(value.X, 65535) | (ulong)PackedVectors.EncodeUNorm(value.Y, 65535) << 16
+                    | (ulong)PackedVectors.EncodeUNorm(value.Z, 65535) << 32 | (ulong)PackedVectors.EncodeUNorm(value.W, 65535) << 48);
+                break;
+            case VertexElementFormat.SNorm10x3A2:
+                BinaryPrimitives.WriteUInt32LittleEndian(data, (uint)SignedNorm(value.X, 511) & 1023 | ((uint)SignedNorm(value.Y, 511) & 1023) << 10
+                    | ((uint)SignedNorm(value.Z, 511) & 1023) << 20 | (uint)SignedNorm(value.W, 1) << 30);
+                break;
+            case VertexElementFormat.UInt8:
+                data[0] = Integer8(value.X);
+                break;
+            case VertexElementFormat.UInt8x2:
+                BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)(Integer8(value.X) | Integer8(value.Y) << 8));
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(format));
         }
@@ -230,6 +256,39 @@ public static class VertexElementCodec
                 for (int i = 0, o = 0; i < count; i++, o += stride)
                     destination[i] = new(Int16(data, o), Int16(data, o + 2), Int16(data, o + 4), Int16(data, o + 6));
                 break;
+            case VertexElementFormat.UNorm8:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(data[o] / 255f, 0, 0, 0);
+                break;
+            case VertexElementFormat.SNorm8:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(DecodeSigned(data[o]), 0, 0, 0);
+                break;
+            case VertexElementFormat.SNorm8x2:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(DecodeSigned(data[o]), DecodeSigned(data[o + 1]), 0, 0);
+                break;
+            case VertexElementFormat.SNorm16x2:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(Math.Max(-1, Int16(data, o) / 32767f), Math.Max(-1, Int16(data, o + 2) / 32767f), 0, 0);
+                break;
+            case VertexElementFormat.UNorm16x4:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(TOrder.U16(data[o..]) / 65535f, TOrder.U16(data[(o + 2)..]) / 65535f,
+                        TOrder.U16(data[(o + 4)..]) / 65535f, TOrder.U16(data[(o + 6)..]) / 65535f);
+                break;
+            case VertexElementFormat.SNorm10x3A2:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = DecodeSigned1010102(TOrder.U32(data[o..]));
+                break;
+            case VertexElementFormat.UInt8:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(data[o], 0, 0, 0);
+                break;
+            case VertexElementFormat.UInt8x2:
+                for (int i = 0, o = 0; i < count; i++, o += stride)
+                    destination[i] = new(data[o], data[o + 1], 0, 0);
+                break;
         }
 
         static float Single(ReadOnlySpan<byte> data, int offset) => BitConverter.UInt32BitsToSingle(TOrder.U32(data[offset..]));
@@ -286,11 +345,18 @@ public static class VertexElementCodec
         (value & 1023) * (2f / 1023) - 1, (value >> 10 & 1023) * (2f / 1023) - 1,
         (value >> 20 & 1023) * (2f / 1023) - 1, (value >> 30) * (2f / 3) - 1);
 
-    private static uint Signed(float value)
+    private static Vector4 DecodeSigned1010102(uint value) => new(
+        Math.Max(-1, ((int)(value << 22) >> 22) / 511f), Math.Max(-1, ((int)(value << 12) >> 22) / 511f),
+        Math.Max(-1, ((int)(value << 2) >> 22) / 511f), Math.Max(-1, (int)value >> 30));
+
+    private static uint Signed(float value) => (uint)SignedNorm(value, 127) & 255;
+
+    // Rounds a value in [-1,1] to the nearest code of a signed normalized field whose largest code is maximum.
+    private static int SignedNorm(float value, int maximum)
     {
         if (!float.IsFinite(value) || value < -1 || value > 1)
             throw new ArgumentOutOfRangeException(nameof(value));
-        return unchecked((byte)(sbyte)MathF.Round(value * 127, MidpointRounding.ToEven));
+        return (int)MathF.Round(value * maximum, MidpointRounding.ToEven);
     }
 
     private static uint Biased(float value, int steps)
@@ -298,6 +364,13 @@ public static class VertexElementCodec
         if (!float.IsFinite(value) || value < -1 || value > 1)
             throw new ArgumentOutOfRangeException(nameof(value), "Normalized vertex value is outside its encoded range.");
         return (uint)MathF.Round((value - -1) / (1 - -1) * steps, MidpointRounding.ToEven);
+    }
+
+    private static byte Integer8(float value)
+    {
+        if (!float.IsFinite(value) || value < 0 || value > 255 || value != MathF.Truncate(value))
+            throw new ArgumentOutOfRangeException(nameof(value), "Unsigned byte components must be integers in [0,255].");
+        return (byte)value;
     }
 
     private static short Integer16(float value)
