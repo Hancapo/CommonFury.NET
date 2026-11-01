@@ -29,7 +29,8 @@ so the build can find `vswhere.exe`.
 
 Not exported: APIs that need caller-supplied tables or live .NET objects. These are animation sequences (they need a
 caller-supplied group table and compact codec), PSO/RBF graph editing, archive caches and byte sources, XML helpers
-and DLC tokens. Those remain available to .NET callers.
+and DLC tokens. Zstandard, XXH64, ASTC decoding and block-linear layouts are not exported yet. Those remain available to
+.NET callers.
 
 ## Size
 
