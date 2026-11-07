@@ -71,6 +71,17 @@ public sealed class RawDeflateTests
         Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(compressed[..^1], data.Length, zeroHistory));
     }
 
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void RejectsOutputOneByteBeyondAGrownBuffer(bool zeroHistory)
+    {
+        // 65,535 + 3 stored bytes: the buffer grows from 64 KiB to the 65,537-byte limit, and the probe byte fills it.
+        byte[] data = [.. Enumerable.Range(0, 65538).Select(i => (byte)i)];
+        byte[] stream = [0, 0xFF, 0xFF, 0, 0, .. data[..65535], 1, 3, 0, 0xFC, 0xFF, .. data[65535..]];
+        Assert.Equal(data, RawDeflate.Decompress(stream, 65538, zeroHistory));
+        Assert.Equal("Decoded DEFLATE output exceeds its size limit.", Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(stream, 65537, zeroHistory)).Message);
+    }
+
     [Fact]
     public void ReportsCorruptStreamsWithTheDecodedOffset()
     {
