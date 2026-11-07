@@ -38,6 +38,8 @@ public static class RawDeflate
                 BinaryLayout.Require(length < maximumLength, "Decoded DEFLATE output exceeds its size limit.");
                 Array.Resize(ref output, (int)Math.Min(maximumLength, 2L * length));
                 output[length++] = probe[0];
+                // The probe byte can fill the grown buffer; probe again rather than read into an empty span.
+                continue;
             }
             int count = Inflate(inflater, input, output.AsSpan(length));
             if (count == 0)
