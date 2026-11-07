@@ -72,6 +72,20 @@ public sealed class RawDeflateTests
     }
 
     [Fact]
+    public void ReportsCorruptStreamsWithTheDecodedOffset()
+    {
+        // A stored block of 32 bytes, then a final block with the reserved type 3.
+        byte[] corrupt = [0, 32, 0, 223, 255, .. Decoded, 7];
+        foreach (bool zeroHistory in new[] { false, true })
+        {
+            var exception = Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(corrupt, 64, zeroHistory));
+            Assert.Equal("Corrupt DEFLATE stream: decoding fails after 32 output bytes.", exception.Message);
+            Assert.StartsWith("Corrupt DEFLATE stream", Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact(corrupt, 40, zeroHistory)).Message);
+        }
+        Assert.Equal("Truncated DEFLATE stream.", Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(DeflateFixture[..2], 32)).Message);
+    }
+
+    [Fact]
     public void ZeroHistoryResolvesReferencesBeforeTheFirstByte()
     {
         // Fixed-Huffman block: one length-3 match at distance 1, then end of block. Nothing precedes it.
