@@ -80,7 +80,7 @@ public sealed class RawDeflateTests
         {
             var exception = Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(corrupt, 64, zeroHistory));
             Assert.Equal("Corrupt DEFLATE stream: decoding fails after 32 output bytes.", exception.Message);
-            Assert.StartsWith("Corrupt DEFLATE stream", Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact(corrupt, 40, zeroHistory)).Message);
+            Assert.Equal("Corrupt DEFLATE stream: decoding fails after 32 output bytes.", Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact(corrupt, 40, zeroHistory)).Message);
         }
         Assert.Equal("Truncated DEFLATE stream.", Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(DeflateFixture[..2], 32)).Message);
     }
