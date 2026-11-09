@@ -96,6 +96,34 @@ public sealed class RawDeflateTests
         Assert.Equal("Truncated DEFLATE stream.", Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(DeflateFixture[..2], 32)).Message);
     }
 
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void DecompressPrefixStopsAfterTheRequestedBytes(bool zeroHistory)
+    {
+        byte[] data = new byte[200_001];
+        new Random(5).NextBytes(data);
+        byte[] compressed = RawDeflate.Compress(data, CompressionLevel.Fastest);
+        foreach (int length in new[] { 0, 1, 64 * 1024, 64 * 1024 + 1, 131_072, data.Length - 1, data.Length })
+            Assert.Equal(data[..length], RawDeflate.DecompressPrefix(compressed, length, zeroHistory));
+        // A stream shorter than the request returns all of it.
+        Assert.Equal(data, RawDeflate.DecompressPrefix(compressed, int.MaxValue, zeroHistory));
+        Assert.Equal(Decoded, RawDeflate.DecompressPrefix(DeflateFixture, 1000, zeroHistory));
+    }
+
+    [Fact]
+    public void DecompressPrefixIgnoresDataAfterThePrefixButNotDamageInsideIt()
+    {
+        // A stored block of 32 bytes, then a final block with the reserved type 3.
+        byte[] corrupt = [0, 32, 0, 223, 255, .. Decoded, 7];
+        Assert.Equal(Decoded[..16], RawDeflate.DecompressPrefix(corrupt, 16));
+        Assert.Equal(Decoded[..16], RawDeflate.DecompressPrefix([.. DeflateFixture, 0], 16));
+        Assert.Equal("Corrupt DEFLATE stream: decoding fails after 32 output bytes.",
+            Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressPrefix(corrupt, 40)).Message);
+        Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressPrefix(DeflateFixture[..2], 32));
+        Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressPrefix([], 32));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RawDeflate.DecompressPrefix(DeflateFixture, -1));
+    }
+
     [Fact]
     public void ZeroHistoryResolvesReferencesBeforeTheFirstByte()
     {
