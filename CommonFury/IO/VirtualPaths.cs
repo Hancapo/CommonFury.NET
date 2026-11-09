@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace CommonFury.IO;
 
 /// <summary>Logical paths: relative asset paths or <c>device:/relative</c>, never host drive paths.</summary>
@@ -7,6 +9,8 @@ public static class VirtualPaths
     public static string Normalize(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
+        if (IsCanonical(path))
+            return path;
         string value = path.Trim().Replace('\\', '/');
         int colon = value.IndexOf(':');
         if (colon < 0)
@@ -19,6 +23,9 @@ public static class VirtualPaths
     public static string NormalizeRoot(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
+        if (path.Length == 0 || IsCanonical(path) ||
+            path.EndsWith(":/", StringComparison.Ordinal) && IsCanonicalDevice(path.AsSpan(0, path.Length - 2)))
+            return path;
         string value = path.Trim().Replace('\\', '/');
         if (value.Length == 0)
             return "";
@@ -32,8 +39,23 @@ public static class VirtualPaths
     {
         string prefix = NormalizeRoot(root);
         string relative = AssetPaths.Normalize(relativePath);
-        return prefix.Length == 0 ? relative : prefix.TrimEnd('/') + "/" + relative;
+        // A normalized root ends with a slash only after a bare device.
+        return prefix.Length == 0 ? relative : prefix[^1] == '/' ? prefix + relative : string.Concat(prefix, "/", relative);
     }
+
+    // True when Normalize would return the same text: a canonical relative path, optionally after a lowercase device:/.
+    private static bool IsCanonical(string path)
+    {
+        int colon = path.IndexOf(':');
+        if (colon < 0)
+            return AssetPaths.IsCanonical(path);
+        return IsCanonicalDevice(path.AsSpan(0, colon)) && path.Length > colon + 2 && path[colon + 1] == '/' &&
+            AssetPaths.IsCanonical(path.AsSpan(colon + 2));
+    }
+
+    private static bool IsCanonicalDevice(ReadOnlySpan<char> device) => device.Length >= 2 && !device.ContainsAnyExcept(DeviceCharacters);
+
+    private static readonly SearchValues<char> DeviceCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyz0123456789_");
 
     private static string Device(string value, int colon)
     {
