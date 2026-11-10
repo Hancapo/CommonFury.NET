@@ -21,10 +21,8 @@ public static class RawDeflate
         BinaryLayout.Require(!compressed.IsEmpty, "Missing DEFLATE stream.");
         if (CompressionCache.Recall(compressed) is { } remembered && remembered.Length <= maximumLength)
             return remembered;
-        using var input = new StrictInput(compressed.ToArray(), zeroHistory);
-        using var inflater = new DeflateStream(input, CompressionMode.Decompress);
-        if (zeroHistory)
-            SkipHistory(inflater, input);
+        using var input = new StrictInput(compressed, zeroHistory);
+        using var inflater = Open(input, zeroHistory);
         var output = new byte[Math.Min(maximumLength, 64 * 1024)];
         int length = 0;
         Span<byte> probe = stackalloc byte[1];
@@ -50,6 +48,29 @@ public static class RawDeflate
         return length == output.Length ? output : output[..length];
     }
 
+    /// <summary>Decodes the first <paramref name="length"/> bytes, or fewer when the stream ends first. The stream after
+    /// them is neither decoded nor validated, so trailing data, truncation or corruption past that point is not reported.</summary>
+    public static byte[] DecompressPrefix(ReadOnlySpan<byte> compressed, int length, bool zeroHistory = false)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        BinaryLayout.Require(!compressed.IsEmpty, "Missing DEFLATE stream.");
+        using var input = new StrictInput(compressed, zeroHistory);
+        using var inflater = Open(input, zeroHistory);
+        // Grows like Decompress, so a declared length far beyond the real data does not allocate it up front.
+        var output = new byte[Math.Min(length, 64 * 1024)];
+        int count = 0;
+        while (count < length)
+        {
+            if (count == output.Length)
+                Array.Resize(ref output, (int)Math.Min(length, 2L * count));
+            int read = Inflate(inflater, input, output.AsSpan(count));
+            if (read == 0)
+                break;
+            count += read;
+        }
+        return count == output.Length ? output : output[..count];
+    }
+
     /// <summary>Decodes exactly <paramref name="length"/> bytes.</summary>
     public static byte[] DecompressExact(ReadOnlySpan<byte> compressed, int length, bool zeroHistory = false)
     {
@@ -65,10 +86,8 @@ public static class RawDeflate
     public static void DecompressExact(ReadOnlySpan<byte> compressed, Span<byte> destination, bool zeroHistory = false)
     {
         BinaryLayout.Require(!compressed.IsEmpty, "Missing DEFLATE stream.");
-        using var input = new StrictInput(compressed.ToArray(), zeroHistory);
-        using var inflater = new DeflateStream(input, CompressionMode.Decompress);
-        if (zeroHistory)
-            SkipHistory(inflater, input);
+        using var input = new StrictInput(compressed, zeroHistory);
+        using var inflater = Open(input, zeroHistory);
         int count = 0;
         while (count < destination.Length && Inflate(inflater, input, destination[count..]) is var read and > 0)
             count += read;
@@ -117,6 +136,14 @@ public static class RawDeflate
         deflater.Write(data);
     }
 
+    private static DeflateStream Open(StrictInput input, bool zeroHistory)
+    {
+        var inflater = new DeflateStream(input, CompressionMode.Decompress);
+        if (zeroHistory)
+            SkipHistory(inflater, input);
+        return inflater;
+    }
+
     private static void SkipHistory(DeflateStream inflater, StrictInput input)
     {
         byte[] history = ArrayPool<byte>.Shared.Rent(HistorySize);
@@ -141,12 +168,27 @@ public static class RawDeflate
     // Withhold the last byte until a separate read: a decoder that finishes earlier has trailing data,
     // even if that data fits in its read-ahead buffer. A request beyond the last byte means truncation.
     // This keeps bulk reads and strict framing without reflection or process-wide AppContext switches.
-    private sealed class StrictInput(byte[] compressed, bool zeroHistory) : Stream
+    // The input copy is rented and returned on disposal, so large resources do not allocate a fresh array per decode.
+    private sealed class StrictInput : Stream
     {
+        private readonly byte[] compressed;
+        private readonly int length;
+        private readonly bool zeroHistory;
+        private int historyPosition;
+        private int position;
+
+        internal StrictInput(ReadOnlySpan<byte> data, bool zeroHistory)
+        {
+            compressed = ArrayPool<byte>.Shared.Rent(data.Length);
+            data.CopyTo(compressed);
+            (length, this.zeroHistory) = (data.Length, zeroHistory);
+            historyPosition = zeroHistory ? 0 : HistoryBlock.Length;
+        }
+
         // Decodes again one byte at a time, which only a failed stream pays for, to locate the failure exactly.
         internal long ValidOutput()
         {
-            using var input = new StrictInput(compressed, zeroHistory);
+            using var input = new StrictInput(compressed.AsSpan(0, length), zeroHistory);
             using var inflater = new DeflateStream(input, CompressionMode.Decompress);
             Span<byte> one = stackalloc byte[1];
             long count = zeroHistory ? -HistorySize : 0;
@@ -159,10 +201,7 @@ public static class RawDeflate
             return Math.Max(count, 0);
         }
 
-        private int historyPosition = zeroHistory ? 0 : HistoryBlock.Length;
-        private int position;
-
-        internal bool HasReadFinalByte => position == compressed.Length;
+        internal bool HasReadFinalByte => position == length;
         internal bool Truncated { get; private set; }
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -188,9 +227,9 @@ public static class RawDeflate
                 return count;
             }
 
-            Truncated = position >= compressed.Length;
+            Truncated = position >= length;
             BinaryLayout.Require(!Truncated, "Truncated DEFLATE stream.");
-            int available = position < compressed.Length - 1 ? compressed.Length - 1 - position : 1;
+            int available = position < length - 1 ? length - 1 - position : 1;
             int copied = Math.Min(buffer.Length, available);
             compressed.AsSpan(position, copied).CopyTo(buffer);
             position += copied;
@@ -201,5 +240,15 @@ public static class RawDeflate
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && position >= 0)
+            {
+                position = -1;
+                ArrayPool<byte>.Shared.Return(compressed);
+            }
+            base.Dispose(disposing);
+        }
     }
 }
