@@ -119,6 +119,31 @@ public sealed class FileTests : IDisposable
     }
 
     [Fact]
+    public void CanonicalLogicalPathsAreReturnedAsIs()
+    {
+        foreach (string path in new[] { "stream/a/shared.ytyp", "a", ".hidden", "a b/c.ydr", "x64/levels/gta5/_citye.rpf/props.ytd" })
+            Assert.Same(path, AssetPaths.Normalize(path));
+        foreach (string path in new[] { "platform:/models/prop.ydr", "dlc_test:/a" })
+            Assert.Same(path, VirtualPaths.Normalize(path));
+        foreach (string root in new[] { "", "platform:/", "platform:/models", "models" })
+            Assert.Same(root, VirtualPaths.NormalizeRoot(root));
+        // Near-canonical inputs still take the normalizing path.
+        Assert.Equal("a/b", AssetPaths.Normalize("a/./b"));
+        Assert.Equal("a/b", AssetPaths.Normalize("a//b"));
+        Assert.Equal("a/b", AssetPaths.Normalize(" a/b\t"));
+        Assert.Equal("a/b", AssetPaths.Normalize("a\\b"));
+        Assert.Equal("caf\u00E9/b", AssetPaths.Normalize("CAF\u00C9/b"));
+        Assert.Equal("platform:/a", VirtualPaths.Normalize("Platform:/a"));
+        Assert.Equal("platform:/", VirtualPaths.NormalizeRoot("PLATFORM:/"));
+        Assert.Equal("platform:/models", VirtualPaths.NormalizeRoot("platform:/models/"));
+        Assert.Equal("platform:/a.rpf/b.ydr", VirtualPaths.Combine("platform:/a.rpf", "b.ydr"));
+        Assert.Equal("platform:/b.ydr", VirtualPaths.Combine("platform:/", "b.ydr"));
+        Assert.Equal("b.ydr", VirtualPaths.Combine("", "b.ydr"));
+        foreach (string path in new[] { "a/..", "../a", "a/../b", "a:b", "x:/a" })
+            Assert.Throws<ArgumentException>(() => VirtualPaths.Normalize(path));
+    }
+
+    [Fact]
     public void FileTreeIsSortedSkipsHiddenAndConfinesDestinations()
     {
         Directory.CreateDirectory(Path.Combine(folder, "sub"));
