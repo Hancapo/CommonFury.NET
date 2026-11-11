@@ -102,21 +102,38 @@ public sealed class UvAtlasTests
         }
         Assert.True(count.Max() <= 1, "Two triangles share a texel.");
 
-        // Charts (connected through shared new vertices) stay at least the padding apart.
+        // Charts (connected through shared new vertices) may interlock, but no texel any part of a chart touches lies within the
+        // padding of a texel another chart touches. Touched texels are sampled densely over each triangle.
         var chartOf = Components(atlas.Indices, atlas.Uvs.Length);
-        var boxes = new Dictionary<int, (Vector2 Min, Vector2 Max)>();
-        for (int v = 0; v < texel.Length; v++)
+        var owner = new int[width * height];
+        Array.Fill(owner, -1);
+        for (int t = 0; t < indices.Length; t += 3)
         {
-            int chart = chartOf[v];
-            boxes[chart] = boxes.TryGetValue(chart, out var box) ? (Vector2.Min(box.Min, texel[v]), Vector2.Max(box.Max, texel[v])) : (texel[v], texel[v]);
+            Vector2 a = texel[atlas.Indices[t]], b = texel[atlas.Indices[t + 1]], c = texel[atlas.Indices[t + 2]];
+            int chart = chartOf[atlas.Indices[t]];
+            int steps = (int)MathF.Ceiling(MathF.Max(Vector2.Distance(a, b), MathF.Max(Vector2.Distance(b, c), Vector2.Distance(c, a))) * 3) + 1;
+            for (int i = 0; i <= steps; i++)
+                for (int j = 0; i + j <= steps; j++)
+                {
+                    var p = a + (b - a) * ((float)i / steps) + (c - a) * ((float)j / steps);
+                    int x = Math.Clamp((int)MathF.Floor(p.X), 0, width - 1), y = Math.Clamp((int)MathF.Floor(p.Y), 0, height - 1);
+                    Assert.True(owner[y * width + x] is -1 || owner[y * width + x] == chart, "Two charts touch one texel.");
+                    owner[y * width + x] = chart;
+                }
         }
-        var list = boxes.Values.ToList();
-        for (int i = 0; i < list.Count; i++)
-            for (int j = i + 1; j < list.Count; j++)
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
             {
-                float gapX = MathF.Max(list[j].Min.X - list[i].Max.X, list[i].Min.X - list[j].Max.X);
-                float gapY = MathF.Max(list[j].Min.Y - list[i].Max.Y, list[i].Min.Y - list[j].Max.Y);
-                Assert.True(MathF.Max(gapX, gapY) >= padding, "Charts are closer than the padding.");
+                int chart = owner[y * width + x];
+                if (chart < 0)
+                    continue;
+                for (int dy = -padding; dy <= padding; dy++)
+                    for (int dx = -padding; dx <= padding; dx++)
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && ny >= 0 && nx < width && ny < height)
+                            Assert.True(owner[ny * width + nx] is -1 || owner[ny * width + nx] == chart, "Charts are closer than the padding.");
+                    }
             }
     }
 
