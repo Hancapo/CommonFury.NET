@@ -136,6 +136,36 @@ public sealed class MeshSimplificationTests
     }
 
     [Fact]
+    public void SmallClosedPartsDoNotFoldFlat()
+    {
+        // Collapsing any edge of a tetrahedron leaves two back-to-back triangles, which keep their normals within the flip angle.
+        Vector3[] positions = [new(1, 1, 1), new(1, -1, -1), new(-1, 1, -1), new(-1, -1, 1)];
+        int[] indices = [0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2];
+        Assert.True(Volume(positions, indices) > 0);
+        var result = MeshSimplification.Simplify(positions, indices, new(0, float.PositiveInfinity));
+        Assert.Equal(indices.Length, result.Indices.Length);
+        Assert.Equal(Volume(positions, indices), Volume(positions, result.Indices), 5);
+    }
+
+    [Fact]
+    public void PartsSharingOnePositionStayApart()
+    {
+        // Two spheres touching at one position: that position is not a single fan, so neither part may pull it inside.
+        var (sphere, sphereIndices) = Sphere(3);
+        var positions = sphere.Concat(sphere.Select(p => p + new Vector3(2, 0, 0))).ToArray();
+        var indices = sphereIndices.Concat(sphereIndices.Select(i => i + sphere.Length)).ToArray();
+        Assert.Equal(positions[0], positions[sphere.Length + 1]);
+        var result = MeshSimplification.Simplify(positions, indices, new(40, float.PositiveInfinity));
+        Assert.Contains(result.Indices, i => positions[i] == new Vector3(1, 0, 0));
+        for (int t = 0; t < result.Indices.Length; t += 3)
+        {
+            var xs = result.Indices.AsSpan(t, 3).ToArray().Select(i => positions[i].X).ToArray();
+            Assert.True(xs.All(x => x <= 1) || xs.All(x => x >= 1), "A triangle spans both parts.");
+        }
+        AssertClosed(positions, result.Indices);
+    }
+
+    [Fact]
     public void RemovesDegenerateTrianglesAndIsDeterministic()
     {
         var (positions, indices) = Sphere(2);

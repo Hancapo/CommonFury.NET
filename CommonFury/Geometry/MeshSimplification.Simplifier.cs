@@ -33,6 +33,9 @@ public static partial class MeshSimplification
         private readonly int[] adjacencyStart, collapseTo;
         private readonly Kind[] kind;
         private readonly bool[] touched;
+        // Marks for the link condition, valid while equal to the current stamp or the one after it.
+        private readonly int[] linkMark;
+        private int linkStamp;
         private int[] adjacency = [];
         private int[] triangles;
         private int triangleCount;
@@ -123,6 +126,7 @@ public static partial class MeshSimplification
             collapseTo = new int[vertexCount];
             kind = new Kind[vertexCount];
             touched = new bool[vertexCount];
+            linkMark = new int[vertexCount];
         }
 
         public SimplifiedMesh Run()
@@ -326,7 +330,7 @@ public static partial class MeshSimplification
                 if (manyWedges)
                     kind[g] = Kind.Locked;
                 else if (wedge1 < 0)
-                    kind[g] = wedgeOpen[0] == 0 && wedgeOpen[1] == 0 ? Kind.Manifold
+                    kind[g] = wedgeOpen[0] == 0 && wedgeOpen[1] == 0 ? IsSingleFan(g) ? Kind.Manifold : Kind.Locked
                         : openOut == 1 && openIn == 1 && wedgeOpen[0] == 1 && wedgeOpen[1] == 1 && !lockBorders ? Kind.Border : Kind.Locked;
                 else
                     kind[g] = openOut == 0 && openIn == 0 && wedgeOpen[0] == 1 && wedgeOpen[1] == 1 && wedgeOpen[2] == 1 && wedgeOpen[3] == 1
@@ -372,7 +376,7 @@ public static partial class MeshSimplification
                 if (remaining <= targetTriangles || cost > errorLimit)
                     break;
                 int u = sources[candidate], v = targets[candidate], gu = group[u], gv = group[v];
-                if (touched[gu] || touched[gv] || Flips(gu, gv, out int removed))
+                if (touched[gu] || touched[gv] || BreaksLink(gu, gv) || Flips(gu, gv, out int removed))
                     continue;
                 Collapse(u, v);
                 foreach (int t in Triangles(gu))
@@ -437,6 +441,91 @@ public static partial class MeshSimplification
                 sum += value * (value * area * attributeWeights[j] * attributeWeights[j] - 2 * predicted);
             }
             return sum;
+        }
+
+        // Whether the triangles around closed position g form one fan: stepping from each triangle across its edge into g reaches
+        // exactly one triangle, and the steps visit them all. Parts that only touch at g, or edges shared by more than two
+        // triangles, fail.
+        private bool IsSingleFan(int g)
+        {
+            var around = Triangles(g);
+            int start = around[0], current = start, steps = 0;
+            do
+            {
+                int into = Neighbour(current, g, 2), next = -1;
+                foreach (int t in around)
+                    if (Neighbour(t, g, 1) == into)
+                    {
+                        if (next >= 0)
+                            return false;
+                        next = t;
+                    }
+                if (next < 0)
+                    return false;
+                current = next;
+                steps++;
+            }
+            while (current != start && steps < around.Length);
+            return current == start && steps == around.Length;
+        }
+
+        // The position `offset` corners after position g in triangle t.
+        private int Neighbour(int t, int g, int offset)
+        {
+            for (int k = 0; k < 3; k++)
+                if (group[triangles[t * 3 + k]] == g)
+                    return group[triangles[t * 3 + (k + offset) % 3]];
+            return -1;
+        }
+
+        // The link condition: positions next to both gu and gv must be third corners of the triangles on edge gu-gv, and no edge
+        // between two of those corners may lie opposite both. Otherwise the collapse folds a closed part, such as a tetrahedron,
+        // into triangles lying back to back.
+        private bool BreaksLink(int gu, int gv)
+        {
+            if (linkStamp > int.MaxValue - 2)
+            {
+                Array.Clear(linkMark);
+                linkStamp = 0;
+            }
+            linkStamp += 2;
+            int near = linkStamp, allowed = linkStamp + 1, first = -1, second = -1;
+            foreach (int t in Triangles(gu))
+                for (int k = 0; k < 3; k++)
+                {
+                    int g = group[triangles[t * 3 + k]];
+                    if (g != gu && g != gv)
+                        linkMark[g] = near;
+                }
+            foreach (int t in Triangles(gu))
+            {
+                int a = group[triangles[t * 3]], b = group[triangles[t * 3 + 1]], c = group[triangles[t * 3 + 2]];
+                if (a != gv && b != gv && c != gv)
+                    continue;
+                int third = a ^ b ^ c ^ gu ^ gv;
+                linkMark[third] = allowed;
+                if (first < 0)
+                    first = third;
+                else if (third != first)
+                    second = third;
+            }
+            foreach (int t in Triangles(gv))
+                for (int k = 0; k < 3; k++)
+                    if (linkMark[group[triangles[t * 3 + k]]] == near)
+                        return true;
+            return second >= 0 && Opposite(gu, gv, first, second) && Opposite(gv, gu, first, second);
+        }
+
+        // Whether some triangle of position g, away from position other, has corners at positions a and b.
+        private bool Opposite(int g, int other, int a, int b)
+        {
+            foreach (int t in Triangles(g))
+            {
+                int x = group[triangles[t * 3]], y = group[triangles[t * 3 + 1]], z = group[triangles[t * 3 + 2]];
+                if (x != other && y != other && z != other && (x == a || y == a || z == a) && (x == b || y == b || z == b))
+                    return true;
+            }
+            return false;
         }
 
         // Whether moving position gu onto gv turns a remaining triangle too far; also counts the triangles the move removes.
