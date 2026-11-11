@@ -424,10 +424,18 @@ public static class VoxelRemeshing
             const double Bias = 0.05;
             var solved = Solve(a00 + Bias, a01, a02, a11 + Bias, a12, a22 + Bias, b0 + Bias * mass.X, b1 + Bias * mass.Y, b2 + Bias * mass.Z) ?? mass;
             // Strictly inside the cell, so that neighbouring cells never share a vertex position, as they would where the surface
-            // passes through a sample.
-            const float Margin = 1e-3f;
+            // passes through a sample. The walls are computed alike by both cells beside them and moved in by at least one float
+            // step, which a fixed fraction of a voxel is not far from the origin.
             var cell = new Vector3(ci, cj, ck);
-            return origin + Vector3.Clamp(solved, cell + new Vector3(Margin), cell + new Vector3(1 - Margin)) * voxel;
+            Vector3 low = origin + cell * voxel, high = origin + (cell + Vector3.One) * voxel, world = origin + solved * voxel;
+            return new(Inside(world.X, low.X, high.X), Inside(world.Y, low.Y, high.Y), Inside(world.Z, low.Z, high.Z));
+        }
+
+        private float Inside(float value, float low, float high)
+        {
+            float margin = 1e-3f * voxel;
+            float lower = MathF.Max(low + margin, MathF.BitIncrement(low)), upper = MathF.Min(high - margin, MathF.BitDecrement(high));
+            return lower <= upper ? Math.Clamp(value, lower, upper) : (low + high) / 2;
         }
 
         // Whether the surface crosses cell edge `edge`, given which of the cell's corners lie outside.
