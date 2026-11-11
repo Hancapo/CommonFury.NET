@@ -79,6 +79,20 @@ public sealed class VoxelRemeshingTests
     }
 
     [Fact]
+    public void VerticesStayApartAtHighGridIndices()
+    {
+        // Unit voxels on whole-number positions: a sphere 40000 voxels out has poles whose shell crosses exactly at samples, where
+        // floats are too coarse for a fixed small margin to keep neighbouring cells' vertices apart.
+        var (sphere, sphereIndices) = Sphere(2, 2, Vector3.Zero);
+        Vector3[] positions = [.. sphere, .. sphere.Select(p => p + new Vector3(40000, 0, 0))];
+        int[] indices = [.. sphereIndices, .. sphereIndices.Select(i => i + sphere.Length)];
+        var shell = VoxelRemeshing.Shell(positions, indices, new(1, 1));
+        Assert.Equal(shell.Positions.Length, shell.Positions.Distinct().Count());
+        AssertClosed(shell);
+        AssertManifold(shell);
+    }
+
+    [Fact]
     public void ValidatesArguments()
     {
         var (positions, indices) = Sphere(1, 1, Vector3.Zero);
