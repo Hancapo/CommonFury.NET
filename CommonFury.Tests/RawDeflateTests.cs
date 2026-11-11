@@ -1,6 +1,8 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using CommonFury.Binary;
 using CommonFury.Compression;
+using CommonFury.Hashing;
 using Xunit;
 
 namespace CommonFury.Tests;
@@ -54,6 +56,51 @@ public sealed class RawDeflateTests
         byte[] nonFinal = [0, 32, 0, 223, 255, .. Decoded];
         Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact(nonFinal, 32));
         Assert.Equal(Decoded, RawDeflate.DecompressExact([.. nonFinal, 3, 0], 32));
+    }
+
+    [Theory]
+    [InlineData(1, false)] [InlineData(1, true)] [InlineData(32, false)] [InlineData(32, true)] [InlineData(300_000, false)] [InlineData(300_000, true)]
+    public void AcceptsTheAdler32TrailerOfTheDecodedOutput(int length, bool zeroHistory)
+    {
+        // ZLibStream frames the stream as header, raw DEFLATE, then the big-endian Adler-32: dropping the header leaves the trailer.
+        byte[] data = new byte[length];
+        new Random(11).NextBytes(data.AsSpan(0, length / 2));
+        data.AsSpan(length / 2).Fill(0xFF); // the largest sums Adler-32 can see
+        byte[] trailed = ZLib(data)[2..];
+        Assert.Equal(data, RawDeflate.Decompress(trailed, length, zeroHistory));
+        Assert.Equal(data, RawDeflate.DecompressExact(trailed, length, zeroHistory));
+        Assert.Equal(BinaryPrimitives.ReadUInt32BigEndian(trailed.AsSpan(^4)), Checksums.Adler32(data));
+    }
+
+    [Fact]
+    public void RejectsTrailersOtherThanTheOutputsAdler32()
+    {
+        uint adler = Checksums.Adler32(Decoded);
+        byte[] matching = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(matching, adler);
+        Assert.Equal(Decoded, RawDeflate.DecompressExact([.. DeflateFixture, .. matching], 32));
+        // The shortest stream: an empty final block followed by the Adler-32 of no bytes.
+        Assert.Empty(RawDeflate.Decompress([3, 0, 0, 0, 0, 1], 0));
+        byte[] littleEndian = [.. matching];
+        littleEndian.AsSpan().Reverse();
+        byte[] flipped = [.. matching];
+        flipped[^1] ^= 1;
+        byte[][] rejected =
+        [
+            [.. DeflateFixture, .. flipped], [.. DeflateFixture, .. littleEndian], [.. DeflateFixture, 0, 0, 0, 0],
+            [.. DeflateFixture, .. matching[..3]], [.. DeflateFixture, .. matching, 0], [.. DeflateFixture, 0, .. matching],
+            // The Adler-32 of a different stream's output.
+            [.. DeflateFixture, .. ZLib([1, 2, 3])[^4..]],
+        ];
+        foreach (byte[] stream in rejected)
+            foreach (bool zeroHistory in new[] { false, true })
+            {
+                Assert.Equal("Trailing data after the DEFLATE stream.", Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(stream, 32, zeroHistory)).Message);
+                Assert.Equal("Trailing data after the DEFLATE stream.", Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact(stream, 32, zeroHistory)).Message);
+            }
+        // A trailer never makes truncated or short output acceptable.
+        Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressExact([.. DeflateFixture, .. matching], 31));
+        Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress([.. DeflateFixture[..^1], .. matching], 32));
     }
 
     [Theory]
@@ -138,6 +185,14 @@ public sealed class RawDeflateTests
         Assert.Equal(new byte[3], RawDeflate.DecompressExact(bytes, 3, zeroHistory: true));
         Assert.Equal(new byte[3], RawDeflate.Decompress(bytes, 3, zeroHistory: true));
         Assert.ThrowsAny<InvalidDataException>(() => RawDeflate.DecompressExact(bytes, 3));
+    }
+
+    private static byte[] ZLib(byte[] data)
+    {
+        using var output = new MemoryStream();
+        using (var deflater = new ZLibStream(output, CompressionLevel.Fastest, leaveOpen: true))
+            deflater.Write(data);
+        return output.ToArray();
     }
 
     private static byte[] Inflate(byte[] payload)
