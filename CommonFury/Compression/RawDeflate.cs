@@ -1,16 +1,22 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.IO.Compression;
 using CommonFury.Binary;
+using CommonFury.Hashing;
 
 namespace CommonFury.Compression;
 
 /// <summary>Strictly framed raw DEFLATE (RFC 1951, no zlib or gzip header). Decoding rejects truncation, bytes after the
 /// final block and output beyond the stated size. Inputs are copied, not retained.</summary>
-/// <remarks><c>zeroHistory</c> seeds a 32 KiB window of zeros, so back-references before the first byte decode as zeros instead
-/// of failing. RSC7 resources need it; RSC8 resources do not. Streams valid without it decode identically.</remarks>
+/// <remarks><para>The one exception to the framing: exactly four bytes after the final block are accepted when they equal the
+/// big-endian Adler-32 of the decoded output, the zlib trailer some exporters append to resources. Any other trailing bytes,
+/// including a trailer that doesn't match, are rejected.</para>
+/// <para><c>zeroHistory</c> seeds a 32 KiB window of zeros, so back-references before the first byte decode as zeros instead
+/// of failing. RSC7 resources need it; RSC8 resources do not. Streams valid without it decode identically.</para></remarks>
 public static class RawDeflate
 {
     private const int HistorySize = 32 * 1024;
+    private const int TrailerSize = sizeof(uint);
     // A non-final stored block seeds the raw decoder's window without changing the resource bytes.
     private static readonly byte[] HistoryBlock = [0x00, 0x00, 0x80, 0xFF, 0x7F, .. new byte[HistorySize]];
 
@@ -44,7 +50,7 @@ public static class RawDeflate
                 break;
             length += count;
         }
-        BinaryLayout.Require(input.HasReadFinalByte, "Trailing data after the DEFLATE stream.");
+        RequireEnd(input, output.AsSpan(0, length));
         return length == output.Length ? output : output[..length];
     }
 
@@ -94,8 +100,11 @@ public static class RawDeflate
         BinaryLayout.Require(count == destination.Length, "DEFLATE output is shorter than its declared size.");
         Span<byte> probe = stackalloc byte[1];
         BinaryLayout.Require(Inflate(inflater, input, probe) == 0, "DEFLATE output exceeds its declared size.");
-        BinaryLayout.Require(input.HasReadFinalByte, "Trailing data after the DEFLATE stream.");
+        RequireEnd(input, destination);
     }
+
+    private static void RequireEnd(StrictInput input, ReadOnlySpan<byte> output) =>
+        BinaryLayout.Require(input.HasReadFinalByte || input.Trailer is { } trailer && trailer == Checksums.Adler32(output), "Trailing data after the DEFLATE stream.");
 
     /// <summary>Empty input produces the two-byte empty final block resource readers require.
     /// <see cref="CompressionLevel.Optimal"/> output may come from <see cref="CompressionCache"/>.</summary>
@@ -167,6 +176,8 @@ public static class RawDeflate
     // DeflateStream buffers input and exposes neither its terminal state nor unused bytes.
     // Withhold the last byte until a separate read: a decoder that finishes earlier has trailing data,
     // even if that data fits in its read-ahead buffer. A request beyond the last byte means truncation.
+    // The byte before a possible Adler-32 trailer is withheld the same way, so a decoder that stops right
+    // after it has ended exactly four bytes before the end.
     // This keeps bulk reads and strict framing without reflection or process-wide AppContext switches.
     // The input copy is rented and returned on disposal, so large resources do not allocate a fresh array per decode.
     private sealed class StrictInput : Stream
@@ -202,6 +213,8 @@ public static class RawDeflate
         }
 
         internal bool HasReadFinalByte => position == length;
+        internal uint? Trailer => length > TrailerSize && position == length - TrailerSize
+            ? BinaryPrimitives.ReadUInt32BigEndian(compressed.AsSpan(position, TrailerSize)) : null;
         internal bool Truncated { get; private set; }
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -229,8 +242,10 @@ public static class RawDeflate
 
             Truncated = position >= length;
             BinaryLayout.Require(!Truncated, "Truncated DEFLATE stream.");
-            int available = position < length - 1 ? length - 1 - position : 1;
-            int copied = Math.Min(buffer.Length, available);
+            int end = position < length - TrailerSize - 1 ? length - TrailerSize - 1
+                : position < length - TrailerSize ? length - TrailerSize
+                : position < length - 1 ? length - 1 : length;
+            int copied = Math.Min(buffer.Length, end - position);
             compressed.AsSpan(position, copied).CopyTo(buffer);
             position += copied;
             return copied;

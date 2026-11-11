@@ -45,6 +45,13 @@ public sealed class HashingTests : IDisposable
     }
 
     [Fact]
+    public void Adler32MatchesRfc1950Vectors()
+    {
+        Assert.Equal(1u, Checksums.Adler32([]));
+        Assert.Equal(0x11E60398u, Checksums.Adler32("Wikipedia"u8));
+    }
+
+    [Fact]
     public void Lookup3WordsMatchesReferenceVectors()
     {
         foreach (JsonElement item in reference.RootElement.GetProperty("words").EnumerateArray())

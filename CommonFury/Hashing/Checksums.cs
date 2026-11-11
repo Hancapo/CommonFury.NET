@@ -27,4 +27,24 @@ public static class Checksums
         second = (second & 0xFFFF) + (second >> 16);
         return (second << 16) | first;
     }
+
+    // RFC 1950 Adler-32. 5,552 bytes is the longest run whose sums cannot overflow before the modulo.
+    internal static uint Adler32(ReadOnlySpan<byte> data)
+    {
+        const uint Modulus = 65521;
+        uint first = 1, second = 0;
+        while (!data.IsEmpty)
+        {
+            int count = Math.Min(data.Length, 5552);
+            foreach (byte value in data[..count])
+            {
+                first += value;
+                second += first;
+            }
+            first %= Modulus;
+            second %= Modulus;
+            data = data[count..];
+        }
+        return (second << 16) | first;
+    }
 }
