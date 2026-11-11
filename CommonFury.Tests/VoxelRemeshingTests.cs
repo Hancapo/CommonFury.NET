@@ -62,6 +62,23 @@ public sealed class VoxelRemeshingTests
     }
 
     [Fact]
+    public void ShellsTouchingWithinAVoxelStayManifold()
+    {
+        // Two spheres along a diagonal, at gaps around where their shells meet: the grid sees them touch at points and slivers.
+        var (sphere, sphereIndices) = Sphere(3, 0.5f, Vector3.Zero);
+        var diagonal = Vector3.Normalize(new Vector3(1, 1, 1));
+        for (float gap = -0.04f; gap <= 0.04f; gap += 0.01f)
+        {
+            var far = sphere.Select(p => p + diagonal * (1.2f + gap));
+            Vector3[] positions = [.. sphere, .. far];
+            int[] indices = [.. sphereIndices, .. sphereIndices.Select(i => i + sphere.Length)];
+            var shell = VoxelRemeshing.Shell(positions, indices, new(0.05f, 0.1f));
+            AssertClosed(shell);
+            AssertManifold(shell);
+        }
+    }
+
+    [Fact]
     public void ValidatesArguments()
     {
         var (positions, indices) = Sphere(1, 1, Vector3.Zero);
@@ -99,6 +116,35 @@ public sealed class VoxelRemeshingTests
             }
         foreach (var ((a, b), count) in directed)
             Assert.Equal(count, directed.GetValueOrDefault((b, a)));
+    }
+
+    // Every edge, by position, joins exactly two triangles, and the triangles around every position form a single fan.
+    private static void AssertManifold(RemeshedMesh shell)
+    {
+        var p = shell.Positions;
+        var outgoing = new Dictionary<(Vector3, Vector3), int>();
+        var around = new Dictionary<Vector3, List<(Vector3 Next, Vector3 Previous)>>();
+        for (int t = 0; t < shell.Indices.Length; t += 3)
+            for (int k = 0; k < 3; k++)
+            {
+                Vector3 a = p[shell.Indices[t + k]], b = p[shell.Indices[t + (k + 1) % 3]], c = p[shell.Indices[t + (k + 2) % 3]];
+                outgoing[(a, b)] = outgoing.GetValueOrDefault((a, b)) + 1;
+                if (!around.TryGetValue(a, out var fan))
+                    around[a] = fan = [];
+                fan.Add((b, c));
+            }
+        Assert.All(outgoing, edge => Assert.Equal(1, edge.Value));
+        foreach (var (_, fan) in around)
+        {
+            var byNext = fan.ToDictionary(corner => corner.Next);
+            var current = fan[0];
+            for (int step = 1; step < fan.Count; step++)
+            {
+                current = byNext[current.Previous];
+                Assert.False(current == fan[0], "A position joins two fans.");
+            }
+            Assert.Equal(fan[0], byNext[current.Previous]);
+        }
     }
 
     private static double Volume(RemeshedMesh shell)

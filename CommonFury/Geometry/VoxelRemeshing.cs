@@ -34,14 +34,67 @@ public sealed class RemeshedMesh
 /// and edges sharp: around a convex edge or corner of the source the shell stays square, so its vertices there lie up to √2 or √3
 /// times the offset away.</para>
 /// <para>Distances are stored only in 8×8×8 blocks near the surface, so memory and time grow with surface area rather than volume,
-/// plus one bit per block of the bounds. Where two parts of the shell touch within one voxel the output can have non-manifold edges;
-/// it has no open edges.</para>
+/// plus one bit per block of the bounds.</para>
+/// <para>The output has no open edges, and a cell that two parts of the shell pass through gets a vertex for each, so parts touching
+/// within one voxel stay separate and the surface is manifold. The one exception is rare: where a single part winds through two
+/// neighbouring cells and meets itself across their shared face twice, the edge between their vertices joins four triangles.</para>
 /// <para>The output is dense, about two triangles per voxel of surface; pass it to <see cref="MeshSimplification"/> with an error
 /// of about one voxel to reduce it.</para>
 /// </remarks>
 public static class VoxelRemeshing
 {
     private const int Block = 8, BlockVolume = Block * Block * Block, MaximumAxisSamples = 1 << 16, MaximumBlocks = 1 << 27;
+
+    // Cell corner c sits at (c & 1, c >> 1 & 1, c >> 2). Cell edge axis * 4 + s + 2t runs along the axis from the corner offset by s
+    // and t across the other two axes, taken in the order (y, z) for x, (z, x) for y and (x, y) for z.
+    private static readonly int[] EdgeCorners = BuildEdgeCorners();
+
+    // The corners of each cell face in order around it, and the edge from each corner to the next.
+    private static readonly int[] FaceCorners = BuildFaceCorners();
+    private static readonly int[] FaceEdges = BuildFaceEdges();
+
+    private static int[] BuildEdgeCorners()
+    {
+        var corners = new int[24];
+        for (int edge = 0; edge < 12; edge++)
+        {
+            int axis = edge >> 2, s = edge & 1, t = edge >> 1 & 1;
+            int start = axis switch { 0 => s << 1 | t << 2, 1 => t | s << 2, _ => s | t << 1 };
+            corners[edge * 2] = start;
+            corners[edge * 2 + 1] = start | 1 << axis;
+        }
+        return corners;
+    }
+
+    private static int[] BuildFaceCorners()
+    {
+        var corners = new int[24];
+        ReadOnlySpan<(int U, int W)> around = [(0, 0), (1, 0), (1, 1), (0, 1)];
+        for (int f = 0; f < 6; f++)
+        {
+            int axis = f >> 1, side = f & 1, u = (axis + 1) % 3, w = (axis + 2) % 3;
+            for (int q = 0; q < 4; q++)
+                corners[f * 4 + q] = side << axis | around[q].U << u | around[q].W << w;
+        }
+        return corners;
+    }
+
+    private static int[] BuildFaceEdges()
+    {
+        var edges = new int[24];
+        for (int f = 0; f < 6; f++)
+            for (int q = 0; q < 4; q++)
+            {
+                int a = FaceCorners[f * 4 + q], b = FaceCorners[f * 4 + (q + 1) % 4];
+                for (int edge = 0; edge < 12; edge++)
+                {
+                    int x = EdgeCorners[edge * 2], y = EdgeCorners[edge * 2 + 1];
+                    if (x == a && y == b || x == b && y == a)
+                        edges[f * 4 + q] = edge;
+                }
+            }
+        return edges;
+    }
 
     /// <exception cref="ArgumentException">An index is out of range or a referenced position is not finite.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The voxel size or offset is out of range, or the grid would exceed 65536 samples
@@ -230,7 +283,7 @@ public static class VoxelRemeshing
         {
             var positions = new List<Vector3>();
             var indices = new List<int>();
-            var vertexOf = new Dictionary<long, int>();
+            var vertexOf = new Dictionary<long, (int First, int Pieces)>();
             Span<int> ring = stackalloc int[4];
             foreach (long key in distance.Keys.Order())
             {
@@ -246,7 +299,8 @@ public static class VoxelRemeshing
                         int ui = axis == 0 ? 1 : 0, uj = axis == 1 ? 1 : 0, uk = axis == 2 ? 1 : 0;
                         if (Value(i + ui, j + uj, k + uk) > 0 == lowerOutside)
                             continue;
-                        // The four cells around the edge, wound positively about the axis; reversed when the outside lies below.
+                        // The four cells around the edge, wound positively about the axis; reversed when the outside lies below. In
+                        // each, the edge is cell edge axis * 4 + s + 2t, with s and t its offsets across the other two axes.
                         for (int q = 0; q < 4; q++)
                         {
                             int du = q is 0 or 3 ? -1 : 0, dv = q < 2 ? -1 : 0;
@@ -257,7 +311,7 @@ public static class VoxelRemeshing
                                 case 1: ck += du; ci += dv; break;
                                 default: ci += du; cj += dv; break;
                             }
-                            ring[q] = CellVertex(ci, cj, ck, positions, vertexOf);
+                            ring[q] = CellVertex(ci, cj, ck, axis * 4 - du - 2 * dv, positions, vertexOf);
                         }
                         if (lowerOutside)
                             ring.Reverse();
@@ -268,49 +322,117 @@ public static class VoxelRemeshing
             return new RemeshedMesh([.. positions], [.. indices]);
         }
 
-        // One vertex per cell with a sign change: the regularized least-squares fit to the planes at its edge crossings, kept inside
-        // the cell.
-        private int CellVertex(int ci, int cj, int ck, List<Vector3> positions, Dictionary<long, int> vertexOf)
+        // The vertex of the piece of surface that crosses cell edge `edge`. A cell holds one vertex per piece: crossings on each
+        // face are paired by the segments the surface leaves on it, and linked crossings form one piece. Where a face has four
+        // crossings, the segments cut off its outside corners, a choice both cells sharing the face make alike, so pieces meet
+        // across faces one to one. Each vertex is the regularized least-squares fit to the planes at its piece's crossings, kept
+        // inside the cell.
+        private int CellVertex(int ci, int cj, int ck, int edge, List<Vector3> positions, Dictionary<long, (int First, int Pieces)> vertexOf)
         {
             long key = ((long)ck * ny + cj) * nx + ci;
-            if (vertexOf.TryGetValue(key, out int existing))
-                return existing;
+            if (vertexOf.TryGetValue(key, out var cell))
+                return cell.First + (cell.Pieces >> 2 * edge & 3);
+            int outside = 0;
+            for (int c = 0; c < 8; c++)
+                if (Value(ci + (c & 1), cj + (c >> 1 & 1), ck + (c >> 2)) > 0)
+                    outside |= 1 << c;
+            // Union-find over crossed edges; -1 marks edges the surface does not cross.
+            Span<int> piece = stackalloc int[12];
+            for (int e = 0; e < 12; e++)
+                piece[e] = Crosses(outside, e) ? e : -1;
+            for (int f = 0; f < 6; f++)
+            {
+                int crossings = 0, first = -1;
+                for (int q = 0; q < 4; q++)
+                    if (piece[FaceEdges[f * 4 + q]] >= 0)
+                    {
+                        crossings++;
+                        first = first < 0 ? FaceEdges[f * 4 + q] : first;
+                    }
+                if (crossings == 2)
+                {
+                    for (int q = 0; q < 4; q++)
+                        if (piece[FaceEdges[f * 4 + q]] >= 0)
+                            Join(piece, FaceEdges[f * 4 + q], first);
+                }
+                else if (crossings == 4)
+                {
+                    // Corner q lies between face edges q - 1 and q.
+                    for (int q = 0; q < 4; q++)
+                        if ((outside >> FaceCorners[f * 4 + q] & 1) != 0)
+                            Join(piece, FaceEdges[f * 4 + (q + 3) % 4], FaceEdges[f * 4 + q]);
+                }
+            }
+            // Number the pieces in edge order, two bits per edge, and fit one vertex to each.
+            Span<int> label = stackalloc int[12];
+            label.Fill(-1);
+            int count = 0, labels = 0;
+            for (int e = 0; e < 12; e++)
+                if (piece[e] >= 0)
+                {
+                    int root = Find(piece, e);
+                    if (label[root] < 0)
+                        label[root] = count++;
+                    labels |= label[root] << 2 * e;
+                }
+            int firstVertex = positions.Count;
+            for (int n = 0; n < count; n++)
+                positions.Add(Fit(ci, cj, ck, outside, labels, n));
+            vertexOf[key] = (firstVertex, labels);
+            return firstVertex + (labels >> 2 * edge & 3);
+        }
+
+        private static int Find(Span<int> parent, int e)
+        {
+            while (parent[e] != e)
+                e = parent[e] = parent[parent[e]];
+            return e;
+        }
+
+        private static void Join(Span<int> parent, int a, int b) => parent[Find(parent, a)] = Find(parent, b);
+
+        private Vector3 Fit(int ci, int cj, int ck, int outside, int labels, int piece)
+        {
             double a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0, b0 = 0, b1 = 0, b2 = 0;
             Vector3 mass = Vector3.Zero;
             int crossings = 0;
-            for (int axis = 0; axis < 3; axis++)
-                for (int e = 0; e < 4; e++)
+            for (int edge = 0; edge < 12; edge++)
+            {
+                if (!Crosses(outside, edge) || (labels >> 2 * edge & 3) != piece)
+                    continue;
+                int axis = edge >> 2, s = edge & 1, t = edge >> 1 & 1;
+                int i = ci, j = cj, k = ck;
+                switch (axis)
                 {
-                    int i = ci, j = cj, k = ck;
-                    int s = e & 1, t = e >> 1;
-                    switch (axis)
-                    {
-                        case 0: j += s; k += t; break;
-                        case 1: k += s; i += t; break;
-                        default: i += s; j += t; break;
-                    }
-                    int ui = axis == 0 ? 1 : 0, uj = axis == 1 ? 1 : 0, uk = axis == 2 ? 1 : 0;
-                    float v0 = Value(i, j, k), v1 = Value(i + ui, j + uj, k + uk);
-                    if (v0 > 0 == v1 > 0)
-                        continue;
-                    var direction = new Vector3(ui, uj, uk);
-                    var point = new Vector3(i, j, k) + direction * (v0 / (v0 - v1));
-                    var normal = Normal(point, v0 > 0 ? -direction : direction);
-                    a00 += normal.X * normal.X; a01 += normal.X * normal.Y; a02 += normal.X * normal.Z;
-                    a11 += normal.Y * normal.Y; a12 += normal.Y * normal.Z; a22 += normal.Z * normal.Z;
-                    double d = Vector3.Dot(normal, point);
-                    b0 += normal.X * d; b1 += normal.Y * d; b2 += normal.Z * d;
-                    mass += point;
-                    crossings++;
+                    case 0: j += s; k += t; break;
+                    case 1: k += s; i += t; break;
+                    default: i += s; j += t; break;
                 }
+                int ui = axis == 0 ? 1 : 0, uj = axis == 1 ? 1 : 0, uk = axis == 2 ? 1 : 0;
+                float v0 = Value(i, j, k), v1 = Value(i + ui, j + uj, k + uk);
+                var direction = new Vector3(ui, uj, uk);
+                var point = new Vector3(i, j, k) + direction * (v0 / (v0 - v1));
+                var normal = Normal(point, v0 > 0 ? -direction : direction);
+                a00 += normal.X * normal.X; a01 += normal.X * normal.Y; a02 += normal.X * normal.Z;
+                a11 += normal.Y * normal.Y; a12 += normal.Y * normal.Z; a22 += normal.Z * normal.Z;
+                double d = Vector3.Dot(normal, point);
+                b0 += normal.X * d; b1 += normal.Y * d; b2 += normal.Z * d;
+                mass += point;
+                crossings++;
+            }
             mass /= crossings;
             const double Bias = 0.05;
             var solved = Solve(a00 + Bias, a01, a02, a11 + Bias, a12, a22 + Bias, b0 + Bias * mass.X, b1 + Bias * mass.Y, b2 + Bias * mass.Z) ?? mass;
+            // Strictly inside the cell, so that neighbouring cells never share a vertex position, as they would where the surface
+            // passes through a sample.
+            const float Margin = 1e-3f;
             var cell = new Vector3(ci, cj, ck);
-            positions.Add(origin + Vector3.Clamp(solved, cell, cell + Vector3.One) * voxel);
-            vertexOf[key] = positions.Count - 1;
-            return positions.Count - 1;
+            return origin + Vector3.Clamp(solved, cell + new Vector3(Margin), cell + new Vector3(1 - Margin)) * voxel;
         }
+
+        // Whether the surface crosses cell edge `edge`, given which of the cell's corners lie outside.
+        private static bool Crosses(int outside, int edge) =>
+            (outside >> EdgeCorners[edge * 2] & 1) != (outside >> EdgeCorners[edge * 2 + 1] & 1);
 
         // The distance field's gradient at a crossing: away from the nearest source point, oriented outward along the edge.
         private Vector3 Normal(Vector3 point, Vector3 outward)
