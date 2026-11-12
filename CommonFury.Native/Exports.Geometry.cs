@@ -77,7 +77,19 @@ internal static unsafe partial class Exports
     {
         try
         {
-            Bc1.Encode(Abi.Input(rgba, length), checked((int)width), checked((int)height), Abi.Output(destination, destinationLength));
+            TextureLibrary.EnsureLoaded();
+            int w = checked((int)width), h = checked((int)height);
+            Span<byte> output = Abi.Output(destination, destinationLength);
+            if (output.Length != TextureLayout.SurfaceSize(w, h, TextureFormat.BC1Unorm))
+                throw new ArgumentException("Destination length does not match one BC1 surface.", nameof(destination));
+            var image = new RgbaImage(w, h, Abi.Input(rgba, length));
+            var options = new TextureEncodingOptions
+            {
+                Format = TextureFormat.BC1Unorm,
+                GenerateMipmaps = false,
+                Bc1Alpha = HasAlphaBelowHalf(image.Pixels) ? Bc1AlphaMode.PunchThrough : Bc1AlphaMode.Opaque,
+            };
+            TextureCodec.Encode(image, options).Data.Span.CopyTo(output);
             return Abi.Success();
         }
         catch (Exception error) { return Abi.Fail(error); }
@@ -90,10 +102,21 @@ internal static unsafe partial class Exports
         {
             Abi.RequireOutput(rgba);
             *rgba = default;
-            *rgba = Abi.Copy(Bc1.Decode(Abi.Input(blocks, length), checked((int)width), checked((int)height)));
+            TextureLibrary.EnsureLoaded();
+            var surface = new TextureSurface(checked((int)width), checked((int)height), TextureFormat.BC1Unorm, 1, Abi.Input(blocks, length).ToArray());
+            *rgba = Abi.Copy(TextureCodec.Decode(surface).Pixels);
             return Abi.Success();
         }
         catch (Exception error) { return Abi.Fail(error); }
+    }
+
+    // Punch-through mode only changes blocks that hold a texel with alpha below 128; other blocks stay four-colour.
+    private static bool HasAlphaBelowHalf(ReadOnlySpan<byte> rgba)
+    {
+        for (int i = 3; i < rgba.Length; i += 4)
+            if (rgba[i] < 128)
+                return true;
+        return false;
     }
 
     [UnmanagedCallersOnly(EntryPoint = "cf_heightmap_read", CallConvs = [typeof(CallConvCdecl)])]

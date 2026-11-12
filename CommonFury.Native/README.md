@@ -9,7 +9,9 @@ dotnet publish CommonFury.Native/CommonFury.Native.csproj -c Release -r win-x64 
 python CommonFury.Native/tests/test_native.py
 ```
 
-Ship `commonfury_native.dll` and the header; the `.pdb` and `.xml` files are only for debugging and IntelliSense.
+Ship `commonfury_native.dll`, the header, and `commonfury_texture.dll` with the `licenses` folder next to it: the BC1 exports load
+that internal texture codec from the directory of `commonfury_native.dll`. The `.pdb` and `.xml` files are only for debugging and
+IntelliSense.
 Publishing needs the MSVC linker. From Git Bash, put `C:\Program Files (x86)\Microsoft Visual Studio\Installer` on `PATH`
 so the build can find `vswhere.exe`.
 
@@ -45,6 +47,9 @@ Every row passes the native test suite. Settings accumulate, Windows x64, .NET 1
 | + `StackTraceSupport=false` (**project default**) | **1,722,368** |
 | + `UseSystemResourceKeys` (not used: framework error text becomes resource keys) | 1,704,960 |
 | + `IlcDisableReflection` (not used: unsupported, no gain) | 1,704,960 |
+
+The rows above were measured before `cf_bc1_encode`/`decode` moved to the shared texture codec, whose parallel mip and block
+encoding adds about 126 KB: the project default is now 1,847,296 bytes.
 
 For reference, an empty Native AOT library with one export and the same settings is 727,040 bytes: that is the runtime floor.
 CommonFury's own compiled code is about 157 KB; the rest of the ~1 MB above the floor is framework code it uses

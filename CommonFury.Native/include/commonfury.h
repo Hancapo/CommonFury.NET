@@ -72,7 +72,8 @@ CF_API int32_t CF_CALL cf_texture_data_size(const cf_texture_info *info, uint32_
 /* Uncompressed formats only. RGBA is 4 bytes per pixel; both buffers describe the same pixel count. */
 CF_API int32_t CF_CALL cf_pixel_decode(uint32_t format, const uint8_t *source, uint64_t length, uint8_t *rgba, uint64_t rgba_length);
 CF_API int32_t CF_CALL cf_pixel_encode(uint32_t format, const uint8_t *rgba, uint64_t length, uint8_t *destination, uint64_t destination_length);
-/* BC1: 8 bytes per 4x4 block, ceil(width/4) * ceil(height/4) blocks. */
+/* BC1: 8 bytes per 4x4 block, ceil(width/4) * ceil(height/4) blocks. Encoding uses three-colour mode only in blocks with a texel
+   whose alpha is below 128, and those texels decode to zero. Both need commonfury_texture.dll next to this library. */
 CF_API int32_t CF_CALL cf_bc1_encode(const uint8_t *rgba, uint64_t length, uint32_t width, uint32_t height, uint8_t *destination, uint64_t destination_length);
 CF_API int32_t CF_CALL cf_bc1_decode(const uint8_t *blocks, uint64_t length, uint32_t width, uint32_t height, cf_buffer *out_rgba);
 

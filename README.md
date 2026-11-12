@@ -3,9 +3,11 @@
 # CommonFury
 
 A .NET 10 library of building blocks for 3D and 2D asset work: binary I/O, hashing, DEFLATE and Zstandard, math and geometry,
-collision hierarchies, textures (DDS, DXGI pixel formats, BC1, ASTC decoding, block-linear layouts), vertex data, skinning,
-animation sequences, height maps and PCM audio, plus readers and writers for RAGE formats such as PSO, RBF and data XML.
-Managed, AOT-compatible, with no native dependencies.
+collision hierarchies, textures (DDS, DXGI pixel formats, BC1–BC5 and BC7 encoding, BC1–BC7 decoding, ASTC decoding, block-linear layouts),
+vertex data, skinning, animation sequences, height maps and PCM audio, plus readers and writers for RAGE formats such as PSO, RBF
+and data XML.
+AOT-compatible and managed, except image file I/O, resizing and block-compressed texture encoding and decoding, which use a
+bundled native codec.
 
 Nothing here is tied to a particular game. Where formats vary between uses (pointer widths, name tables, limits, codecs, memory
 layouts), the caller passes the choice in. Readers treat input as untrusted: sizes are checked, decompression is capped and
@@ -24,7 +26,7 @@ malformed data fails with `InvalidDataException` or a diagnostic.
 | `CommonFury.Numerics` | Vector, quaternion, matrix and transform helpers; bounds (`Aabb2`, `Aabb3`, `Sphere3`), `Matrix3x4`, `Vector3D`; quantization, bounds quantization and packed GPU vectors; CPU skinning (`SkinningMath`, `SkinningBatch`); curves, joint frames, exact integer grids, pixel channel math (`PixelMath`) | grid steps, bounds and bit widths; influence counts |
 | `CommonFury.Geometry` | Mesh validation, normals and tangents (`MeshMath`); strip and fan conversion and splitting by vertex count (`MeshPartitioning`); attribute- and seam-aware edge-collapse simplification onto source vertices (`MeshSimplification`); ray and nearest-point queries (`TriangleBvh`); non-overlapping chart atlases for baking (`UvAtlas`); closed outer shells of triangle soups by sparse voxel dual contouring (`VoxelRemeshing`); polygons, plane fitting, height fields, rasterization and grid filters, `SpatialGrid2`, shape areas and bounds, mass properties | vertex limits for splitting; up and fallback axes for plane fits; simplification targets, attribute weights and locks; atlas size, padding and chart angle; voxel size and shell offset |
 | `CommonFury.Collisions` | Median-split BVH building (`BvhBuilder`, `BvhBuild`) and 16-bit quantized nodes (`BvhQuantization`, `QuantizedBvhNode`); polygon record kinds (`BoundPolygonKind`) | split rule, leaf ids, quantization rounding |
-| `CommonFury.Textures` | DXGI format identities and tightly packed layouts (`TextureFormat(s)`, `TextureLayout`, `TextureShape`, `TextureSurface`); DDS reading and writing (`DdsCodec`); uncompressed pixel conversion (`PixelCodec`); BC1 encoding and decoding (`Bc1`); decoding of every 2D ASTC footprint to RGBA8 or half floats (`Astc`, `AstcFormat`); block-linear swizzling, mip chains and layer padding (`BlockLinear`, `BlockLinearSurface`, `BlockLinearLayout`, `TextureElement`); baking surface data from one mesh into another mesh's atlas through a caller sampler (`TextureBaker`) | ASTC profile; GOB layout and block height for block-linear data; bake channels, search distance and sampler |
+| `CommonFury.Textures` | DXGI format identities and tightly packed layouts (`TextureFormat(s)`, `TextureLayout`, `TextureShape`, `TextureSurface`); DDS reading and writing (`DdsCodec`); uncompressed pixel conversion (`PixelCodec`); RGBA8 images with PNG, JPEG, BMP and TGA reading and writing and resizing (`RgbaImage`); encoding RGBA8 to BC1–BC5, BC7 and uncompressed formats with generated mip chains, and decoding them and BC6H back to RGBA8 (`TextureCodec`, `TextureEncodingOptions`); decoding of every 2D ASTC footprint to RGBA8 or half floats (`Astc`, `AstcFormat`); block-linear swizzling, mip chains and layer padding (`BlockLinear`, `BlockLinearSurface`, `BlockLinearLayout`, `TextureElement`); baking surface data from one mesh into another mesh's atlas through a caller sampler (`TextureBaker`) | encoding format, quality, mip filter and BC1 alpha mode; ASTC profile; GOB layout and block height for block-linear data; bake channels, search distance and sampler |
 | `CommonFury.Audio` | Owned PCM16 audio (`PcmAudio`): WAV reading and writing, sample-rate and channel conversion, float input, peak data; `IAudioDecoder` for compressed formats | a decoder for compressed formats |
 | `CommonFury.Vertices` | Vertex element formats and their codec (`VertexElementFormat(s)`, `VertexElementCodec`), declaration semantics (`VertexSemantic`), gen9 vertex declarations (`Gen9VertexDeclaration`) | DXGI 24 range (`Rgb10A2Range`) |
 | `CommonFury.Animations` | Animation sequence blocks read, written and validated in uncompressed or compact storage: static, raw, quantized, indirect, linear and quaternion-operation channels, `SequenceTrack`, `AnimationSequence`, `AnimationSequenceFormat`, `AnimationChannelGroupTable` | group table, linear encoding, hash policy, compact codec |
@@ -41,9 +43,19 @@ Each namespace with diagnostics has its own stable codes (`PsoDiagnosticCodes`, 
 
 ## Native library
 
-`CommonFury.Native` publishes `commonfury_native.dll`, a Native AOT C ABI (1.7 MB on win-x64) over a subset of the library: hashing,
+`CommonFury.Native` publishes `commonfury_native.dll`, a Native AOT C ABI (1.8 MB on win-x64) over a subset of the library: hashing,
 DEFLATE, DDS, pixel and BC1 conversion, RBF and PSO validation and rewriting, height maps, vertex elements and BVH building. See
 [CommonFury.Native/README.md](CommonFury.Native/README.md) for the exports and what stays .NET-only.
+
+## Native texture codec
+
+`RgbaImage` and the block-compressed paths of `TextureCodec` call `commonfury_texture.dll`, an internal native library built from
+[CommonFury/native](CommonFury/native) (rgbcx and bc7e encoders, bcdec decoder, stb image I/O and resizing). Its C ABI is
+private to CommonFury and versioned with it. On Windows x64 the CommonFury project builds it with CMake and the Visual Studio
+C++ tools and copies it to the output of every project that references CommonFury. The CMake project supports only MSVC on x64,
+so other platforms build with `BuildNativeTextures=false` and have no block-compressed coding, image I/O or resizing until the
+native build is ported. See
+[CommonFury/native/THIRD_PARTY.md](CommonFury/native/THIRD_PARTY.md) for sources and licenses.
 
 ## Audio decoder
 
