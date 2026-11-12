@@ -1,8 +1,56 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="CommonFury.Tests" />
   </ItemGroup>
+
+  <!-- Windows x64 builds the internal native texture codec (commonfury_texture) with CMake and MSVC before compiling.
+       Other platforms set BuildNativeTextures=false; block-compressed encoding and decoding then need a commonfury_texture
+       library built from native/CMakeLists.txt next to the application. -->
+  <PropertyGroup>
+    <NativeTextureRid Condition="'$(NativeTextureRid)' == ''">$(RuntimeIdentifier)</NativeTextureRid>
+    <NativeTextureRid Condition="'$(NativeTextureRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeTextureRid>
+    <BuildNativeTextures Condition="'$(BuildNativeTextures)' == '' and '$(OS)' == 'Windows_NT' and '$(NativeTextureRid)' == 'win-x64'">true</BuildNativeTextures>
+    <BuildNativeTextures Condition="'$(BuildNativeTextures)' == ''">false</BuildNativeTextures>
+    <NativeTextureBuildDirectory>$(MSBuildProjectDirectory)/obj/native/win-x64</NativeTextureBuildDirectory>
+    <NativeTextureLibrary Condition="'$(NativeTextureLibrary)' == ''">$(NativeTextureBuildDirectory)/Release/commonfury_texture.dll</NativeTextureLibrary>
+    <VsWhere>$(MSBuildProgramFiles32)/Microsoft Visual Studio/Installer/vswhere.exe</VsWhere>
+  </PropertyGroup>
+  <ItemGroup>
+    <NativeTextureSource Include="native/CMakeLists.txt;native/src/**/*;native/vendor/**/*;$(MSBuildThisFileFullPath)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(NativeTextureRid)' == 'win-x64' and ('$(BuildNativeTextures)' == 'true' or Exists('$(NativeTextureLibrary)'))">
+    <None Include="$(NativeTextureLibrary)" Link="commonfury_texture.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native" />
+    <None Include="native/THIRD_PARTY.md;native/LICENSES/*" Link="licenses/commonfury_texture/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="licenses/commonfury_texture" />
+  </ItemGroup>
+
+  <!-- Built as Release in every configuration: unoptimized encoders are many times slower. -->
+  <Target Name="BuildNativeTextures" BeforeTargets="PrepareForBuild" DependsOnTargets="ResolveNativeTextureCMake"
+          Condition="'$(BuildNativeTextures)' == 'true'" Inputs="@(NativeTextureSource)" Outputs="$(NativeTextureLibrary)">
+    <Error Condition="'$(OS)' != 'Windows_NT' or '$(NativeTextureRid)' != 'win-x64'"
+           Text="The bundled native texture build supports Windows x64. Set BuildNativeTextures=false and deploy commonfury_texture for this platform." />
+    <Exec Command="&quot;$(NativeTextureCMake)&quot; -S &quot;$(MSBuildProjectDirectory)/native&quot; -B &quot;$(NativeTextureBuildDirectory)&quot; -G &quot;Visual Studio 17 2022&quot; -A x64" />
+    <Exec Command="&quot;$(NativeTextureCMake)&quot; --build &quot;$(NativeTextureBuildDirectory)&quot; --config Release --target commonfury_texture" />
+    <Error Condition="!Exists('$(NativeTextureLibrary)')" Text="The native texture build did not produce $(NativeTextureLibrary)." />
+  </Target>
+
+  <!-- Prefer the CMake that ships with the Visual Studio C++ tools; fall back to cmake on PATH. -->
+  <Target Name="ResolveNativeTextureCMake" Condition="'$(NativeTextureCMake)' == ''">
+    <Exec Condition="Exists('$(VsWhere)')" ConsoleToMSBuild="true" StandardOutputImportance="Low"
+          Command="&quot;$(VsWhere)&quot; -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath">
+      <Output TaskParameter="ConsoleOutput" PropertyName="NativeTextureVisualStudio" />
+    </Exec>
+    <PropertyGroup>
+      <NativeTextureBundledCMake>$(NativeTextureVisualStudio)/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe</NativeTextureBundledCMake>
+      <NativeTextureCMake Condition="Exists('$(NativeTextureBundledCMake)')">$(NativeTextureBundledCMake)</NativeTextureCMake>
+      <NativeTextureCMake Condition="'$(NativeTextureCMake)' == ''">cmake</NativeTextureCMake>
+    </PropertyGroup>
+  </Target>
 </Project>

@@ -237,6 +237,14 @@ class Textures(unittest.TestCase):
         out = Buffer()
         check(lib.cf_bc1_decode(blocks.raw, 8, 4, 4, C.byref(out)))
         self.assertEqual(take(out), solid)
+        # Alpha below 128 selects three-colour blocks; those texels decode to zero, the rest stay opaque.
+        holed = bytes([0, 0, 0, 0]) + solid[4:]
+        check(lib.cf_bc1_encode(holed, len(holed), 4, 4, blocks, 8))
+        self.assertLessEqual(struct.unpack_from("<H", blocks.raw)[0], struct.unpack_from("<H", blocks.raw, 2)[0])
+        check(lib.cf_bc1_decode(blocks.raw, 8, 4, 4, C.byref(out)))
+        self.assertEqual(take(out), holed)
+        self.assertEqual(lib.cf_bc1_encode(solid, len(solid), 4, 4, blocks, 7), INVALID_ARGUMENT)
+        self.assertEqual(lib.cf_bc1_decode(blocks.raw, 7, 4, 4, C.byref(out)), INVALID_ARGUMENT)
 
 
 class Metadata(unittest.TestCase):
