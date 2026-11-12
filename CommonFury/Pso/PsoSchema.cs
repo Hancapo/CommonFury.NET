@@ -228,7 +228,8 @@ public sealed class PsoSchema
         PsoDataType.Structure when entry.Subtype == 0 => ByHash.GetValueOrDefault(entry.ReferenceKey) is PsoStruct s ? s.Length : 0,
         PsoDataType.Bool or PsoDataType.Byte or PsoDataType.SByte => 1,
         PsoDataType.Int16 or PsoDataType.UInt16 or PsoDataType.Half => 2,
-        PsoDataType.Int32 or PsoDataType.UInt32 or PsoDataType.Enum or PsoDataType.Flags or PsoDataType.Float => 4,
+        PsoDataType.Int32 or PsoDataType.UInt32 or PsoDataType.Flags or PsoDataType.Float => 4,
+        PsoDataType.Enum => entry.Subtype switch { 0 => 4, 1 => 2, 2 => 1, _ => 0 },
         PsoDataType.Int64 or PsoDataType.Float2 => 8,
         // Wire type 9 (Vector3) and wire type 20 (Vec3V) both occupy 16 bytes.
         PsoDataType.Float3 or PsoDataType.Float4 or PsoDataType.Float3Aligned or PsoDataType.Float4Aligned => 16,

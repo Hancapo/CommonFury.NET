@@ -430,9 +430,15 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                     writer.WriteUInt16((ushort)Value<PsoInteger>(value, entry).Value);
                     break;
                 case PsoDataType.Int32:
-                case PsoDataType.Enum:
                 case PsoDataType.Flags:
+                case PsoDataType.Enum when entry.Subtype == 0:
                     writer.WriteInt32((int)Value<PsoInteger>(value, entry).Value);
+                    break;
+                case PsoDataType.Enum when entry.Subtype == 1:
+                    writer.WriteInt16((short)Value<PsoInteger>(value, entry).Value);
+                    break;
+                case PsoDataType.Enum when entry.Subtype == 2:
+                    writer.WriteSByte((sbyte)Value<PsoInteger>(value, entry).Value);
                     break;
                 case PsoDataType.UInt32:
                     writer.WriteUInt32((uint)Value<PsoInteger>(value, entry).Value);
