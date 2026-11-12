@@ -3,7 +3,7 @@
 # CommonFury
 
 A .NET 10 library of building blocks for 3D and 2D asset work: binary I/O, hashing, DEFLATE and Zstandard, math and geometry,
-collision hierarchies, textures (DDS, DXGI pixel formats, BC1–BC7 encoding and decoding, ASTC decoding, block-linear layouts),
+collision hierarchies, textures (DDS, DXGI pixel formats, BC1–BC5 and BC7 encoding, BC1–BC7 decoding, ASTC decoding, block-linear layouts),
 vertex data, skinning, animation sequences, height maps and PCM audio, plus readers and writers for RAGE formats such as PSO, RBF
 and data XML.
 AOT-compatible and managed, except image file I/O, resizing and block-compressed texture encoding and decoding, which use a
@@ -52,8 +52,9 @@ DEFLATE, DDS, pixel and BC1 conversion, RBF and PSO validation and rewriting, he
 `RgbaImage` and the block-compressed paths of `TextureCodec` call `commonfury_texture.dll`, an internal native library built from
 [CommonFury/native](CommonFury/native) (rgbcx and bc7e encoders, bcdec decoder, stb image I/O and resizing). Its C ABI is
 private to CommonFury and versioned with it. On Windows x64 the CommonFury project builds it with CMake and the Visual Studio
-C++ tools and copies it to the output of every project that references CommonFury; other platforms build with
-`BuildNativeTextures=false` and deploy a `commonfury_texture` library built from the same CMake project. See
+C++ tools and copies it to the output of every project that references CommonFury. The CMake project supports only MSVC on x64,
+so other platforms build with `BuildNativeTextures=false` and have no block-compressed coding, image I/O or resizing until the
+native build is ported. See
 [CommonFury/native/THIRD_PARTY.md](CommonFury/native/THIRD_PARTY.md) for sources and licenses.
 
 ## Audio decoder
