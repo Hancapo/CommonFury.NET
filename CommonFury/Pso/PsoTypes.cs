@@ -23,7 +23,7 @@ public enum PsoDataType : byte
     Structure = 12,
     /// <summary>Inline or indirect array, selected by subtype; the preceding anonymous entry describes its elements.</summary>
     Array = 13,
-    /// <summary>Signed 32-bit enumeration value.</summary>
+    /// <summary>Signed enumeration value; subtype 0 stores 32 bits, 1 stores 16 and 2 stores 8.</summary>
     Enum = 14,
     /// <summary>32-bit flags; the bit pattern is kept as is.</summary>
     Flags = 15,

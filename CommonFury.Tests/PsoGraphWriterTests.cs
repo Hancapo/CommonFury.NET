@@ -192,6 +192,29 @@ public sealed class PsoGraphWriterTests
     }
 
     [Fact]
+    public void EnumSubtypesStoreSignedThirtyTwoSixteenAndEightBitValues()
+    {
+        // Two 8-bit enums, a 16-bit enum and a 32-bit enum, packed as their subtypes size them.
+        PsoEntry[] entries = [
+            new(0xA1234571, PsoDataType.Enum, 2, 0, 0), new(0xA1234572, PsoDataType.Enum, 2, 1, 0),
+            new(0xA1234573, PsoDataType.Enum, 1, 2, 0), new(0xA1234574, PsoDataType.Enum, 0, 4, 0)
+        ];
+        byte[] data = [7, 0xFF, 0xFF, 0xFE, 0, 0, 0x01, 0x02];
+        PsoFile file = File(entries, data);
+        PsoNode root = file.ReadRoot().Root;
+        Assert.Equal(new long[] { 7, -1, -2, 0x102 }, root.Fields.Select(field => Assert.IsType<PsoInteger>(field.Value).Value));
+        Assert.Equal(new[] { 1, 1, 2, 4 }, entries.Select(file.Schema.ElementStride));
+
+        PsoFile written = PsoFile.FromGraph(file.Schema, root);
+        PsoBlock block = written.Blocks[written.RootBlockId - 1];
+        Assert.Equal(data, written.Psin.Data.Slice(block.Offset, block.Length).ToArray());
+
+        PsoDocument unknown = File([new(0xA1234571, PsoDataType.Enum, 3, 0, 0)], new byte[4]).ReadRoot();
+        Assert.IsType<PsoUnsupported>(unknown.Root.Fields[0].Value);
+        Assert.Contains(unknown.Report.Diagnostics, diagnostic => diagnostic.Code == PsoDiagnosticCodes.FieldUnsupported);
+    }
+
+    [Fact]
     public void FieldsMatchTheirSchemaEntriesInAnyOrder()
     {
         PsoEntry first = new(0xA1234571, PsoDataType.UInt32, 0, 0, 0), second = new(0xA1234572, PsoDataType.UInt32, 0, 4, 0);

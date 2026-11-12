@@ -196,7 +196,14 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
             PsoDataType.Byte => new PsoInteger(reader.ReadByte()),
             PsoDataType.Int16 => new PsoInteger(reader.ReadInt16()),
             PsoDataType.UInt16 => new PsoInteger(reader.ReadUInt16()),
-            PsoDataType.Int32 or PsoDataType.Enum or PsoDataType.Flags => new PsoInteger(reader.ReadInt32()),
+            PsoDataType.Int32 or PsoDataType.Flags => new PsoInteger(reader.ReadInt32()),
+            PsoDataType.Enum => entry.Subtype switch
+            {
+                0 => new PsoInteger(reader.ReadInt32()),
+                1 => new PsoInteger(reader.ReadInt16()),
+                2 => new PsoInteger(reader.ReadSByte()),
+                _ => Unsupported(entry, "Unknown enum subtype.")
+            },
             PsoDataType.UInt32 => new PsoInteger(reader.ReadUInt32()),
             PsoDataType.Int64 => new PsoInteger(reader.ReadInt64()),
             PsoDataType.Float => new PsoFloat(reader.ReadSingle()),
