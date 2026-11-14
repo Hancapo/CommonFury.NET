@@ -220,8 +220,9 @@ public sealed class PsoSchema
     }
 
     /// <summary>Returns the bytes one value of <paramref name="entry"/> occupies, as a field or as an array element described
-    /// by an ARRAYINFO entry; structure pointers take 8. Returns zero when the size is not fixed by the entry and this schema:
-    /// arrays, maps, unknown subtypes, and inline structures this schema does not define.</summary>
+    /// by an ARRAYINFO entry; structure pointers take 8, and arrays that hold their own count (subtypes 0, 3 and 5) take their
+    /// 16- or 8-byte header. Returns zero when the size is not fixed by the entry and this schema: inline arrays, arrays counted
+    /// by another member, maps, unknown subtypes, and inline structures this schema does not define.</summary>
     public int ElementStride(PsoEntry entry) => entry.DataType switch
     {
         PsoDataType.Structure when PsoLayout.IsPointerElement(entry) => 8,
@@ -237,6 +238,7 @@ public sealed class PsoSchema
         PsoDataType.String when entry.Subtype is 1 or 2 => 8,
         PsoDataType.String when entry.Subtype == 3 => 16,
         PsoDataType.String when entry.Subtype == 0 => (int)(entry.ReferenceKey >> 16),
+        PsoDataType.Array when entry.Subtype is 0 or 3 or 5 => PsoLayout.ArrayStorageSize(entry, 0),
         _ => 0
     };
 

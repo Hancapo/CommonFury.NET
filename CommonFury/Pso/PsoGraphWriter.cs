@@ -52,11 +52,11 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
             foreach (FieldPlan field in plan.Fields)
             {
                 if (field.Entry.DataType == PsoDataType.Array)
-                    WriteArray(owner, field.Entry, field.Element!.Value, Value<PsoArray>(field.Value, field.Entry));
+                    WriteArray(plan.Schema, owner, field.Entry, field.Element!.Value, Value<PsoArray>(field.Value, field.Entry));
                 else if (field.Value is PsoMap map && field.Entry.DataType == PsoDataType.Map)
                 {
                     WriteCount(owner.Add(field.Entry.DataOffset), map.Sorted ? 1 : 0, 1);
-                    WriteArray(owner, PsoMapLayout.Array(field.Entry), PsoMapLayout.Element(map.PairTypeHash), field.Pairs!);
+                    WriteArray(plan.Schema, owner, PsoMapLayout.Array(field.Entry), PsoMapLayout.Element(map.PairTypeHash), field.Pairs!);
                 }
                 else
                     WriteValue(field.Entry, field.Value, owner.Add(field.Entry.DataOffset), false);
@@ -139,12 +139,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
             {
                 Require(element is not null, "A PSO array requires an ARRAYINFO descriptor.");
                 PsoArray array = Value<PsoArray>(value!, entry);
-                int stride = Builder.Schema.ElementStride(element.Value);
-                Require(stride > 0 || array.Values.Count == 0 && (!entry.IsInlineArray || entry.ReferenceKey >> 16 == 0),
-                    "PSO array element size is unknown.");
-                storage = PsoLayout.ArrayStorageSize(entry, stride);
-                CheckArrayCount(plan, entry, array.Values.Count);
-                DiscoverArray(plan, entry, element.Value, array, stride);
+                storage = PsoLayout.ArrayStorageSize(entry, DiscoverArray(plan, entry, element.Value, array));
             }
             else
             {
@@ -193,6 +188,17 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         return distinct;
     }
 
+    // Returns the element stride.
+    private int DiscoverArray(NodePlan owner, PsoEntry entry, PsoEntry element, PsoArray array)
+    {
+        int stride = Builder.Schema.ElementStride(element);
+        Require(stride > 0 || array.Values.Count == 0 && (!entry.IsInlineArray || entry.ReferenceKey >> 16 == 0),
+            "PSO array element size is unknown.");
+        CheckArrayCount(owner, entry, array.Values.Count);
+        DiscoverArray(owner, entry, element, array, stride);
+        return stride;
+    }
+
     private void DiscoverArray(NodePlan owner, PsoEntry entry, PsoEntry element, PsoArray array, int stride)
     {
         NodePlan? first = null;
@@ -200,7 +206,9 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         for (int i = 0; i < array.Values.Count; i++)
         {
             PsoValue value = array.Values[i];
-            if (!inline && element.DataType == PsoDataType.Structure && !PsoLayout.IsPointerElement(element))
+            if (element.DataType == PsoDataType.Array)
+                DiscoverArray(owner, element, NestedElement(owner.Schema, element), Value<PsoArray>(value, element));
+            else if (!inline && element.DataType == PsoDataType.Structure && !PsoLayout.IsPointerElement(element))
             {
                 NodePlan item = StructureValue(element, value);
                 if (first is null)
@@ -212,6 +220,9 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
                 DiscoverValue(owner, element, value, checked(entry.DataOffset + i * stride), true);
         }
     }
+
+    private static PsoEntry NestedElement(PsoStruct owner, PsoEntry array) =>
+        PsoLayout.NestedElement(owner, array) ?? throw new InvalidDataException("A nested PSO array has no ARRAYINFO descriptor.");
 
     private void DiscoverValue(NodePlan owner, PsoEntry entry, PsoValue value, int offset, bool arrayElement)
     {
@@ -350,7 +361,7 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
         }
     }
 
-    private void WriteArray(Location owner, PsoEntry entry, PsoEntry element, PsoArray array)
+    private void WriteArray(PsoStruct schema, Location owner, PsoEntry entry, PsoEntry element, PsoArray array)
     {
         int count = array.Values.Count;
         int stride = Builder.Schema.ElementStride(element);
@@ -369,7 +380,12 @@ public sealed class PsoGraphWriter(PsoSchema schema, PsoPointerLayout layout = P
             Pointer(field, contents);
         }
         for (int i = 0; i < count; i++)
-            WriteValue(element, array.Values[i], contents.Add(checked(i * stride)), true);
+        {
+            if (element.DataType == PsoDataType.Array)
+                WriteArray(schema, contents.Add(checked(i * stride)), element with { DataOffset = 0 }, NestedElement(schema, element), (PsoArray)array.Values[i]);
+            else
+                WriteValue(element, array.Values[i], contents.Add(checked(i * stride)), true);
+        }
         switch (entry.Subtype)
         {
             case 0:
