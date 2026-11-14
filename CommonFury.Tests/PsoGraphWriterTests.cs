@@ -88,6 +88,47 @@ public sealed class PsoGraphWriterTests
     }
 
     [Fact]
+    public void ArrayElementsCanBeArraysThatFindTheirDescriptorByContentsIndex()
+    {
+        // A member array of two atArrays; its ARRAYINFO (index 1) is an atArray whose contents index names entry 0.
+        PsoEntry[] entries = [
+            new(PsoEntry.ArrayInfoHash, PsoDataType.UInt32, 0, 0, 0),
+            new(PsoEntry.ArrayInfoHash, PsoDataType.Array, 0, 0, 0),
+            new(ArrayHash, PsoDataType.Array, 4, 0, 2u << 16 | 1)
+        ];
+        byte[] root = new byte[32];
+        BinaryPrimitives.WriteUInt32BigEndian(root, new PsoPointer(2, 0).Encode());
+        BinaryPrimitives.WriteUInt16BigEndian(root.AsSpan(8), 2);
+        BinaryPrimitives.WriteUInt16BigEndian(root.AsSpan(10), 2);
+        PsoFile file = File(entries, root, ((uint)PsoDataType.UInt32, [0, 0, 0, 11, 0, 0, 0, 22]));
+        Assert.Equal(16, file.Schema.ElementStride(entries[1]));
+
+        PsoDocument document = file.ReadRoot();
+        Assert.Empty(document.Report.Diagnostics);
+        PsoArray groups = Assert.IsType<PsoArray>(document.Root.Fields[0].Value);
+        long[][] Values(PsoArray array) => array.Values.Select(group => Assert.IsType<PsoArray>(group).Values.Select(value => Assert.IsType<PsoInteger>(value).Value).ToArray()).ToArray();
+        Assert.Equal([[11, 22], []], Values(groups));
+
+        byte[] written = PsoFile.FromGraph(file.Schema, document.Root).Write();
+        Assert.Equal(file.Write(), written);
+        Assert.Equal([[11, 22], []], Values(Assert.IsType<PsoArray>(PsoFile.Read(written).ReadRoot().Root.Fields[0].Value)));
+
+        // A descriptor index that names a field, or the array itself, has no element layout.
+        PsoEntry[] fieldIndex = [entries[0], entries[1] with { ReferenceKey = 2 }, entries[2]];
+        PsoDocument unsupported = File(fieldIndex, root, ((uint)PsoDataType.UInt32, new byte[8])).ReadRoot();
+        Assert.Equal(["Array has no ARRAYINFO descriptor.", "Array has no ARRAYINFO descriptor."],
+            Assert.IsType<PsoArray>(unsupported.Root.Fields[0].Value).Values.Select(value => Assert.IsType<PsoUnsupported>(value).Reason));
+        var schema = new PsoSchema([new PsoStruct(RootHash, 32, fieldIndex)]);
+        Assert.Equal("A nested PSO array has no ARRAYINFO descriptor.", Assert.Throws<InvalidDataException>(() => PsoFile.FromGraph(schema,
+            PsoNode.Create(RootHash, [new(fieldIndex[2], PsoArray.Create([PsoArray.Create([]), PsoArray.Create([])]))]))).Message);
+        // A descriptor that describes itself nests until the depth limit.
+        byte[] self = new byte[32];
+        BinaryPrimitives.WriteUInt32BigEndian(self, new PsoPointer(1, 0).Encode());
+        BinaryPrimitives.WriteUInt16BigEndian(self.AsSpan(8), 2);
+        Assert.Throws<InvalidDataException>(() => File([entries[0], entries[1] with { ReferenceKey = 1 }, entries[2]], self).ReadRoot());
+    }
+
+    [Fact]
     public void TypedPointerArrayRetainsSharedNodeIdentity()
     {
         byte[] root = new byte[16];

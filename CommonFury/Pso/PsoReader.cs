@@ -88,7 +88,7 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
             case PsoDataType.Structure when entry.Subtype is 3 or 4:
                 return PointerTarget(Unwrap(ReadPointer(field), pages), depth + 1, pages);
             case PsoDataType.Array:
-                return Array(entry, arrayInfo, pointer, data, field, depth + 1, pages);
+                return Array(schema, entry, arrayInfo, pointer, data, field, depth + 1, pages);
             case PsoDataType.Map when entry.Subtype == 1:
                 return Map(schema, entry, field, depth + 1);
             case PsoDataType.String:
@@ -215,11 +215,13 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
         };
     }
 
-    private PsoValue Array(PsoEntry entry, PsoEntry? info, PsoPointer owner, ReadOnlySpan<byte> structure, ReadOnlySpan<byte> field, int depth,
-        PageState? ownerPages)
+    private PsoValue Array(PsoStruct schema, PsoEntry entry, PsoEntry? info, PsoPointer owner, ReadOnlySpan<byte> structure, ReadOnlySpan<byte> field,
+        int depth, PageState? ownerPages)
     {
+        if (depth > options.MaximumDepth)
+            throw new InvalidDataException("PSO nesting exceeds the configured limit.");
         if (info is not PsoEntry element)
-            return Unsupported(entry, "Array has no preceding ARRAYINFO descriptor.");
+            return Unsupported(entry, "Array has no ARRAYINFO descriptor.");
         if (entry.Subtype > 8)
             return Unsupported(entry, "Unknown array subtype.");
         bool inline = entry.IsInlineArray;
@@ -254,6 +256,10 @@ internal sealed class PsoReader(PsoFile file, PsoReadOptions options)
             if (element.DataType == PsoDataType.Structure)
                 values[i] = PsoLayout.IsPointerElement(element) ? PointerTarget(Unwrap(ReadPointer(item), pages), depth, pages)
                     : new PsoNodeValue(Structure(element.ReferenceKey, Add(pointer, i * stride), depth, !inline, structurePages));
+            else if (element.DataType == PsoDataType.Array)
+                // Like other elements, a nested array starts at its slot; the descriptor's own offset is not used.
+                values[i] = Array(schema, element with { DataOffset = 0 }, PsoLayout.NestedElement(schema, element), Add(pointer, i * stride), item, item,
+                    depth + 1, pages);
             else
                 values[i] = element.DataType == PsoDataType.String ? String(element, item, pages) : Scalar(element, item);
         }

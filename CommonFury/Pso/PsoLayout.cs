@@ -11,6 +11,13 @@ internal static class PsoLayout
     internal static bool IsPointerElement(PsoEntry entry) => entry.DataType == PsoDataType.Structure &&
         (entry.Subtype is 3 or 4 || entry.Subtype == 0 && entry.ReferenceKey == 0);
 
+    // An array element that is itself an array finds its own ARRAYINFO by the contents index, the low half of its reference key.
+    internal static PsoEntry? NestedElement(PsoStruct owner, PsoEntry array)
+    {
+        int index = (ushort)array.ReferenceKey;
+        return index < owner.Entries.Count && owner.Entries[index].IsAnonymous ? owner.Entries[index] : null;
+    }
+
     internal static int FixedArrayCountOffset(PsoEntry entry, int stride) =>
         BinaryLayout.Align(checked((int)(entry.ReferenceKey >> 16) * stride), 4);
 
