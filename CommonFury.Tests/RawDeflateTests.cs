@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using CommonFury.Binary;
@@ -116,6 +117,35 @@ public sealed class RawDeflateTests
             Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(compressed, limit, zeroHistory));
         Assert.Empty(RawDeflate.Decompress([3, 0], 0, zeroHistory));
         Assert.Throws<InvalidDataException>(() => RawDeflate.Decompress(compressed[..^1], data.Length, zeroHistory));
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void DecompressPooledMatchesDecompress(bool zeroHistory)
+    {
+        // Mostly zeros, so the output grows several times past the first guess.
+        byte[] data = new byte[1 << 20];
+        new Random(5).NextBytes(data.AsSpan(0, 1000));
+        byte[] compressed = RawDeflate.Compress(data, CompressionLevel.Fastest);
+        ArraySegment<byte> pooled = RawDeflate.DecompressPooled(compressed, data.Length, zeroHistory);
+        Assert.Equal(0, pooled.Offset);
+        Assert.Equal(data, pooled.AsSpan().ToArray());
+        ArrayPool<byte>.Shared.Return(pooled.Array!);
+        Assert.Throws<InvalidDataException>(() => RawDeflate.DecompressPooled(compressed, data.Length - 1, zeroHistory));
+        Assert.Equal(0, RawDeflate.DecompressPooled([3, 0], 0, zeroHistory).Count);
+    }
+
+    [Fact]
+    public void DecompressAllocatesAboutItsOutput()
+    {
+        byte[] data = new byte[4 << 20];
+        new Random(6).NextBytes(data.AsSpan(0, 1000));
+        byte[] compressed = RawDeflate.Compress(data, CompressionLevel.Fastest);
+        _ = RawDeflate.Decompress(compressed, data.Length, zeroHistory: true);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = RawDeflate.Decompress(compressed, data.Length, zeroHistory: true);
+        // The growing buffers are pooled; only the returned array and the inflater's own state are new.
+        Assert.InRange(GC.GetAllocatedBytesForCurrentThread() - before, data.Length, data.Length + (256 << 10));
     }
 
     [Theory]
