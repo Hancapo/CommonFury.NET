@@ -27,31 +27,70 @@ public static class RawDeflate
         BinaryLayout.Require(!compressed.IsEmpty, "Missing DEFLATE stream.");
         if (CompressionCache.Recall(compressed) is { } remembered && remembered.Length <= maximumLength)
             return remembered;
+        ArraySegment<byte> decoded = DecompressPooled(compressed, maximumLength, zeroHistory);
+        byte[] result = decoded.AsSpan().ToArray();
+        Return(decoded.Array!);
+        return result;
+    }
+
+    /// <summary>Decodes at most <paramref name="maximumLength"/> bytes into an array rented from <see cref="ArrayPool{T}.Shared"/>,
+    /// for callers that only need the output briefly. The segment starts at offset 0; return its array to the shared pool once
+    /// done with it, and don't use it afterwards. Nothing is rented when decoding fails.</summary>
+    public static ArraySegment<byte> DecompressPooled(ReadOnlySpan<byte> compressed, int maximumLength, bool zeroHistory = false)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
+        BinaryLayout.Require(!compressed.IsEmpty, "Missing DEFLATE stream.");
+        if (CompressionCache.Recall(compressed) is { } remembered && remembered.Length <= maximumLength)
+        {
+            byte[] copy = ArrayPool<byte>.Shared.Rent(remembered.Length);
+            remembered.CopyTo(copy, 0);
+            return new(copy, 0, remembered.Length);
+        }
         using var input = new StrictInput(compressed, zeroHistory);
         using var inflater = Open(input, zeroHistory);
-        var output = new byte[Math.Min(maximumLength, 64 * 1024)];
-        int length = 0;
-        Span<byte> probe = stackalloc byte[1];
-        while (true)
+        // Grows from a guess rather than the stated size, so a declared length far beyond the real data does not rent it up
+        // front. Rented buffers can be longer than asked for; the limit, not the buffer, bounds the output.
+        byte[] output = ArrayPool<byte>.Shared.Rent((int)Math.Min(maximumLength, Math.Max(64 * 1024, 4L * compressed.Length)));
+        try
         {
-            if (length == output.Length)
+            int length = 0;
+            Span<byte> probe = stackalloc byte[1];
+            while (true)
             {
-                // A full buffer grows only once another byte exists, so output that exactly fills it needs no trimming copy.
-                if (Inflate(inflater, input, probe) == 0)
+                int capacity = Math.Min(output.Length, maximumLength);
+                if (length == capacity)
+                {
+                    // A full buffer grows only once another byte exists, so output that exactly fills it needs no copy.
+                    if (Inflate(inflater, input, probe) == 0)
+                        break;
+                    BinaryLayout.Require(length < maximumLength, "Decoded DEFLATE output exceeds its size limit.");
+                    byte[] grown = ArrayPool<byte>.Shared.Rent((int)Math.Min(maximumLength, 2L * Math.Max(output.Length, 1)));
+                    output.AsSpan(0, length).CopyTo(grown);
+                    Return(output);
+                    output = grown;
+                    output[length++] = probe[0];
+                    // The probe byte can fill the grown buffer; probe again rather than read into an empty span.
+                    continue;
+                }
+                int count = Inflate(inflater, input, output.AsSpan(length, capacity - length));
+                if (count == 0)
                     break;
-                BinaryLayout.Require(length < maximumLength, "Decoded DEFLATE output exceeds its size limit.");
-                Array.Resize(ref output, (int)Math.Min(maximumLength, 2L * length));
-                output[length++] = probe[0];
-                // The probe byte can fill the grown buffer; probe again rather than read into an empty span.
-                continue;
+                length += count;
             }
-            int count = Inflate(inflater, input, output.AsSpan(length));
-            if (count == 0)
-                break;
-            length += count;
+            RequireEnd(input, output.AsSpan(0, length));
+            return new(output, 0, length);
         }
-        RequireEnd(input, output.AsSpan(0, length));
-        return length == output.Length ? output : output[..length];
+        catch
+        {
+            Return(output);
+            throw;
+        }
+    }
+
+    private static void Return(byte[] array)
+    {
+        if (array.Length != 0)
+            ArrayPool<byte>.Shared.Return(array);
     }
 
     /// <summary>Decodes the first <paramref name="length"/> bytes, or fewer when the stream ends first. The stream after
