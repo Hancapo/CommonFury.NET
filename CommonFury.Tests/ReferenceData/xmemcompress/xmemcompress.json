@@ -1,0 +1,29 @@
+{
+ "fixtures": [
+  {
+   "name": "text-w15",
+   "length": 30000,
+   "sha256": "214b8a598cfc043769e2a8af657d315cc0c81018f39d92dd53ca5012db9fe048"
+  },
+  {
+   "name": "noise-w15",
+   "length": 3000,
+   "sha256": "aabcec6f1bdd75eababbf28aa3cc0acdd916a5db50ab532f7c0b3c46407f52fa"
+  },
+  {
+   "name": "calls-w15",
+   "length": 20000,
+   "sha256": "6fbac0b84674a60dfc7489564c778b4d9d96ba0850e2ada23b678de48617a66e"
+  },
+  {
+   "name": "records-w21-frames",
+   "length": 100000,
+   "sha256": "beb80e84a9c139ead70cbdc7cdce9fd79928ece26c8a40020b01ebd78ca262f7"
+  },
+  {
+   "name": "two-chunks-w15",
+   "length": 37768,
+   "sha256": "4b4c23f8d14a095c32d6090834fc90dee4bf5b8800dee3b116c06706c46dbdb8"
+  }
+ ]
+}
