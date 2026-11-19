@@ -2,7 +2,7 @@
 
 # CommonFury
 
-A .NET 10 library of building blocks for 3D and 2D asset work: binary I/O, hashing, DEFLATE and Zstandard, math and geometry,
+A .NET 10 library of building blocks for 3D and 2D asset work: binary I/O, hashing, DEFLATE, Zstandard and LZX, math and geometry,
 collision hierarchies, textures (DDS, DXGI pixel formats, BC1–BC5 and BC7 encoding, BC1–BC7 decoding, ASTC decoding, block-linear layouts),
 vertex data, skinning, animation sequences, height maps and PCM audio, plus readers and writers for RAGE formats such as PSO, RBF
 and data XML.
@@ -20,7 +20,7 @@ malformed data fails with `InvalidDataException` or a diagnostic.
 | `CommonFury` | Validation results: `Diagnostic`, `ValidationReport`, `ValidationException` and their severity, scope and purpose enums | |
 | `CommonFury.Binary` | Bounded span readers and writers (`BinarySpanReader`/`Writer`), `BinaryStreamWriter`, primitive arrays (`BinaryArrays`), LSB- and MSB-first bit readers and writers, `BitField32`, range and alignment checks (`BinaryLayout`) | byte order |
 | `CommonFury.Hashing` | Jenkins one-at-a-time and lookup3 (`Jenkins`), name hashes with optional spellings (`Hash32`, `PartialHash32`, `HashText`, `HashResolver`), `ElfHash`, Fletcher-32 (`Checksums`), `XxHash64` | |
-| `CommonFury.Compression` | Raw DEFLATE compression and decompression (`RawDeflate`, with optional output reuse through `CompressionCache`); Zstandard decompression from spans or streams, with dictionaries and content checksums (`Zstandard`, `ZstandardDictionary`, `ZstandardFrameHeader`). There is no Zstandard encoder | output size limit; zero-history window when the format needs it; Zstandard dictionary |
+| `CommonFury.Compression` | Raw DEFLATE compression and decompression (`RawDeflate`, with optional output reuse through `CompressionCache`); Zstandard decompression from spans or streams, with dictionaries and content checksums (`Zstandard`, `ZstandardDictionary`, `ZstandardFrameHeader`); LZX decompression of XMemCompress streams, including E8 call translation (`XMemCompress`). There are no Zstandard or LZX encoders | output size limit; zero-history window when the format needs it; Zstandard dictionary |
 | `CommonFury.IO` | Atomic file writes (`AtomicFile`), logical asset and device paths (`AssetPaths`, `VirtualPaths`), asset names (`AssetNames`), deterministic directory walks (`FileTree`) | |
 | `CommonFury.Archives` | Positional random-access reads (`ByteSource`, `StreamByteSource`, `FileByteSource`), range streams (`ByteSliceStream`), an LRU of open archives (`ArchiveHandleCache<T>`) | archive open and size callbacks |
 | `CommonFury.Numerics` | Vector, quaternion, matrix and transform helpers; bounds (`Aabb2`, `Aabb3`, `Sphere3`), `Matrix3x4`, `Vector3D`; quantization, bounds quantization and packed GPU vectors; CPU skinning (`SkinningMath`, `SkinningBatch`); curves, joint frames, exact integer grids, pixel channel math (`PixelMath`) | grid steps, bounds and bit widths; influence counts |
