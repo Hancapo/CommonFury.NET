@@ -45,6 +45,16 @@ public sealed class HashingTests : IDisposable
     }
 
     [Fact]
+    public void Crc32AndFnv1MatchPublishedVectors()
+    {
+        Assert.Equal(0u, Checksums.Crc32([]));
+        Assert.Equal(0xCBF43926u, Checksums.Crc32("123456789"u8));
+        Assert.Equal(0xCBF29CE484222325ul, Fnv1.Hash64([]));
+        Assert.Equal(0xAF63BD4C8601B7BEul, Fnv1.Hash64("a"u8));
+        Assert.Equal(0x340D8765A4DDA9C2ul, Fnv1.Hash64("foobar"u8));
+    }
+
+    [Fact]
     public void Adler32MatchesRfc1950Vectors()
     {
         Assert.Equal(1u, Checksums.Adler32([]));
