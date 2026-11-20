@@ -62,6 +62,18 @@ public sealed class HashingTests : IDisposable
     }
 
     [Fact]
+    public void Adler32ContinuesFromAPreviousResult()
+    {
+        byte[] data = new byte[20_000];
+        for (int i = 0; i < data.Length; i++)
+            data[i] = (byte)(i * 131 + 7);
+        uint whole = Checksums.Adler32(data);
+        Assert.Equal(whole, Checksums.Adler32(data.AsSpan(12_345), Checksums.Adler32(data.AsSpan(0, 12_345))));
+        Assert.Equal(0x11E60398u, Checksums.Adler32("dia"u8, Checksums.Adler32("Wikipe"u8)));
+        Assert.Equal(Checksums.Adler32([]), Checksums.Adler32([], 1));
+    }
+
+    [Fact]
     public void Lookup3WordsMatchesReferenceVectors()
     {
         foreach (JsonElement item in reference.RootElement.GetProperty("words").EnumerateArray())
