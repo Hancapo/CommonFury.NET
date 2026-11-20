@@ -112,14 +112,66 @@ public static class Quantization
     {
         if (data.Length % 6 != 0)
             throw new ArgumentException("Packed XYZ data must contain complete six-byte triples.", nameof(data));
-        var result = new Vector3[data.Length / 6];
+        return DecodeSignedPositions16(data, data.Length / 6, 6, scale, offset);
+    }
+
+    /// <summary>Decodes <paramref name="count"/> little-endian Int16 XYZ triples, one every <paramref name="stride"/> bytes
+    /// from the start of <paramref name="data"/> (an interleaved vertex attribute), as <c>value * scale + offset</c>; the
+    /// result is owned.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The count or stride is negative, the stride is under 6, or the data
+    /// ends before the last triple.</exception>
+    public static Vector3[] DecodeSignedPositions16(ReadOnlySpan<byte> data, int count, int stride, Vector3 scale, Vector3 offset)
+    {
+        RequireStrided(data, count, stride, 6);
+        var result = new Vector3[count];
         for (int i = 0; i < result.Length; i++)
         {
-            ReadOnlySpan<byte> source = data[(i * 6)..];
+            ReadOnlySpan<byte> source = data[(i * stride)..];
             result[i] = new Vector3(BinaryPrimitives.ReadInt16LittleEndian(source), BinaryPrimitives.ReadInt16LittleEndian(source[2..]),
                 BinaryPrimitives.ReadInt16LittleEndian(source[4..])) * scale + offset;
         }
         return result;
+    }
+
+    /// <summary>Decodes <paramref name="count"/> little-endian Int16 pairs (texture coordinates, for example), one every
+    /// <paramref name="stride"/> bytes, as <c>value * scale + offset</c>; the result is owned.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The count or stride is negative, the stride is under 4, or the data
+    /// ends before the last pair.</exception>
+    public static Vector2[] DecodeSignedPairs16(ReadOnlySpan<byte> data, int count, int stride, Vector2 scale, Vector2 offset)
+    {
+        RequireStrided(data, count, stride, 4);
+        var result = new Vector2[count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            ReadOnlySpan<byte> source = data[(i * stride)..];
+            result[i] = new Vector2(BinaryPrimitives.ReadInt16LittleEndian(source), BinaryPrimitives.ReadInt16LittleEndian(source[2..])) * scale + offset;
+        }
+        return result;
+    }
+
+    /// <summary>Decodes <paramref name="count"/> vectors stored as unsigned bytes in Z, Y, X order (the B, G, R of a
+    /// D3DCOLOR), one every <paramref name="stride"/> bytes, mapping 0–255 to −1–1; the byte after them is ignored. The
+    /// result is owned and not normalized.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The count or stride is negative, the stride is under 3, or the data
+    /// ends before the last vector.</exception>
+    public static Vector3[] DecodeBgrVectors8(ReadOnlySpan<byte> data, int count, int stride)
+    {
+        RequireStrided(data, count, stride, 3);
+        var result = new Vector3[count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            ReadOnlySpan<byte> source = data[(i * stride)..];
+            result[i] = new Vector3(source[2], source[1], source[0]) / 127.5f - Vector3.One;
+        }
+        return result;
+    }
+
+    private static void RequireStrided(ReadOnlySpan<byte> data, int count, int stride, int size)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        ArgumentOutOfRangeException.ThrowIfLessThan(stride, size);
+        if (count > 0 && (long)(count - 1) * stride + size > data.Length)
+            throw new ArgumentOutOfRangeException(nameof(count), "The data ends before the last element.");
     }
 
     public static float DecodeLinear(float encoded, float quantum, float offset) => encoded * quantum + offset;

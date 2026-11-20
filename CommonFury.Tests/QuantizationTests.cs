@@ -86,6 +86,25 @@ public sealed class QuantizationTests
     }
 
     [Fact]
+    public void StridedDecodersReadOneElementPerStride()
+    {
+        // Two 10-byte vertices, Int16 XYZ then an Int16 pair; the buffer ends a byte past the last pair.
+        byte[] data = new byte[21];
+        BinaryPrimitives.WriteInt16LittleEndian(data, -2);
+        BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(10), 4);
+        BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(14), 8);
+        BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(16), -6);
+        Assert.Equal([new Vector3(0, 2, 3), new Vector3(3, 2, 11)], Quantization.DecodeSignedPositions16(data, 2, 10, new(0.5f, 1, 1), new(1, 2, 3)));
+        Assert.Equal([new Vector2(1, 0), new Vector2(-5, 0)], Quantization.DecodeSignedPairs16(data.AsSpan(6), 2, 10, new(1, 0.5f), new(1, 0)));
+        // B, G, R, then a byte that is ignored; the buffer ends after the last vector's R.
+        Assert.Equal([new Vector3(1, -1, 1), new Vector3(1, 1, -1)], Quantization.DecodeBgrVectors8([255, 0, 255, 9, 0, 255, 255], 2, 4));
+        Assert.Empty(Quantization.DecodeSignedPairs16([], 0, 4, Vector2.One, Vector2.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Quantization.DecodeSignedPositions16(data, 2, 16, Vector3.One, Vector3.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Quantization.DecodeSignedPairs16(data, 1, 3, Vector2.One, Vector2.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Quantization.DecodeBgrVectors8(data, -1, 4));
+    }
+
+    [Fact]
     public void PackedVectorsRoundTripNormalizedComponents()
     {
         Vector4 value = new(0, 0.5f, 1, 0.2f);
