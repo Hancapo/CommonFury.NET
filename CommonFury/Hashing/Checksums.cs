@@ -52,11 +52,14 @@ public static class Checksums
         return table;
     }
 
-    // RFC 1950 Adler-32. 5,552 bytes is the longest run whose sums cannot overflow before the modulo.
-    internal static uint Adler32(ReadOnlySpan<byte> data)
+    /// <summary>RFC 1950 Adler-32, the checksum that ends a zlib stream.</summary>
+    /// <param name="data">Bytes to add.</param>
+    /// <param name="adler">The checksum so far: a previous result to continue over data that arrives in pieces, or 1 to start.</param>
+    public static uint Adler32(ReadOnlySpan<byte> data, uint adler = 1)
     {
+        // 5,552 bytes is the longest run whose sums cannot overflow before the modulo, even from a 16-bit starting value.
         const uint Modulus = 65521;
-        uint first = 1, second = 0;
+        uint first = adler & 0xFFFF, second = adler >> 16;
         while (!data.IsEmpty)
         {
             int count = Math.Min(data.Length, 5552);
@@ -69,6 +72,6 @@ public static class Checksums
             second %= Modulus;
             data = data[count..];
         }
-        return (second << 16) | first;
+        return ((second % Modulus) << 16) | (first % Modulus);
     }
 }
